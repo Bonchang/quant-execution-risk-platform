@@ -50,7 +50,9 @@ class OrderControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute("DELETE FROM risk_check_result");
+        jdbcTemplate.execute("DELETE FROM fill");
         jdbcTemplate.execute("DELETE FROM orders");
+        jdbcTemplate.execute("DELETE FROM position");
         jdbcTemplate.execute("DELETE FROM market_price");
         jdbcTemplate.execute("DELETE FROM strategy_run");
         jdbcTemplate.execute("DELETE FROM instrument");
@@ -60,6 +62,7 @@ class OrderControllerIntegrationTest {
     void createOrder_success() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
 
         String payload = objectMapper.writeValueAsString(Map.of(
                 "strategyRunId", strategyRunId,
@@ -77,14 +80,27 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.id").isNumber())
                 .andExpect(jsonPath("$.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.instrumentId").value(instrumentId))
-                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.status").value("FILLED"))
                 .andExpect(jsonPath("$.clientOrderId").value("client-001"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill",
+                Integer.class
+        );
+        Integer positionCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM position",
+                Integer.class
+        );
+
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(positionCount).isEqualTo(1);
     }
 
     @Test
     void createOrder_duplicateClientOrderIdPerStrategyRun_rejected() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
 
         String payload = objectMapper.writeValueAsString(Map.of(
                 "strategyRunId", strategyRunId,
@@ -125,6 +141,16 @@ class OrderControllerIntegrationTest {
                 RETURNING id
                 """,
                 Long.class
+        );
+    }
+
+    private void insertMarketPrice(Long instrumentId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO market_price(instrument_id, price_date, open_price, high_price, low_price, close_price, volume)
+                VALUES (?, CURRENT_DATE, 100.000000, 110.000000, 95.000000, 105.000000, 1000)
+                """,
+                instrumentId
         );
     }
 }

@@ -2,6 +2,7 @@ package com.bonchang.qerp.order;
 
 import com.bonchang.qerp.instrument.Instrument;
 import com.bonchang.qerp.instrument.InstrumentRepository;
+import com.bonchang.qerp.execution.OrderExecutionService;
 import com.bonchang.qerp.order.dto.CreateOrderRequest;
 import com.bonchang.qerp.order.dto.CreateOrderResponse;
 import com.bonchang.qerp.risk.RiskEvaluationService;
@@ -25,6 +26,7 @@ public class OrderService {
     private final StrategyRunRepository strategyRunRepository;
     private final InstrumentRepository instrumentRepository;
     private final RiskEvaluationService riskEvaluationService;
+    private final OrderExecutionService orderExecutionService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -55,17 +57,18 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "duplicate clientOrderId for strategyRunId", ex);
         }
         Order evaluated = riskEvaluationService.evaluateAndUpdateOrderStatus(saved);
+        Order executed = orderExecutionService.executeApprovedOrder(evaluated);
 
         return new CreateOrderResponse(
-                evaluated.getId(),
+                executed.getId(),
                 request.strategyRunId(),
                 request.instrumentId(),
-                evaluated.getSide(),
-                evaluated.getQuantity(),
-                evaluated.getOrderType(),
-                evaluated.getStatus(),
-                evaluated.getClientOrderId(),
-                evaluated.getCreatedAt()
+                executed.getSide(),
+                executed.getQuantity(),
+                executed.getOrderType(),
+                executed.getStatus(),
+                executed.getClientOrderId(),
+                executed.getCreatedAt()
         );
     }
 }

@@ -16,5 +16,7 @@ spring:
 risk:
   max-order-quantity: 1000
   max-instrument-quantity: 2000
+execution:
+  default-fill-price: 1.000000
 server:
   port: ${SERVER_PORT:8080}

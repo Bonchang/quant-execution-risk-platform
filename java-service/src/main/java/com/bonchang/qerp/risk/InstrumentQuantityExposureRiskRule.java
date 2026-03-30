@@ -4,6 +4,7 @@ import com.bonchang.qerp.order.Order;
 import com.bonchang.qerp.order.OrderRepository;
 import com.bonchang.qerp.order.OrderStatus;
 import java.math.BigDecimal;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -25,9 +26,9 @@ public class InstrumentQuantityExposureRiskRule implements RiskRule {
 
     @Override
     public RiskRuleResult evaluate(Order order) {
-        BigDecimal existingApprovedQuantity = orderRepository.sumQuantityByInstrumentIdAndStatus(
+        BigDecimal existingApprovedQuantity = orderRepository.sumQuantityByInstrumentIdAndStatuses(
                 order.getInstrument().getId(),
-                OrderStatus.APPROVED
+                List.of(OrderStatus.APPROVED, OrderStatus.FILLED)
         );
         BigDecimal projectedQuantity = existingApprovedQuantity.add(order.getQuantity());
         boolean passed = projectedQuantity.compareTo(maxInstrumentQuantity) <= 0;
