@@ -122,6 +122,52 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isConflict());
     }
 
+    @Test
+    void createOrder_overLimit_rejectedAndNoFill() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "1500.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "risk-reject-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
+    }
+
+    @Test
+    void createOrder_missingStrategyRun_badRequest() throws Exception {
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", 999999L,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "bad-strategy-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("strategyRunId not found"));
+    }
+
     private Long insertStrategyRun() {
         return jdbcTemplate.queryForObject(
                 """

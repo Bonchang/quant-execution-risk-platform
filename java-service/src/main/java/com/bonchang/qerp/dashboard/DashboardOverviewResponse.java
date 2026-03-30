@@ -6,12 +6,22 @@ import java.util.List;
 import java.util.Map;
 
 public record DashboardOverviewResponse(
+        Summary summary,
         Map<String, Long> statusCounts,
         List<RecentOrderItem> recentOrders,
         List<RiskCheckItem> recentRiskChecks,
         List<FillItem> recentFills,
         List<PositionItem> positions
 ) {
+
+    public record Summary(
+            long totalOrders,
+            long filledOrders,
+            long rejectedOrders,
+            double fillRatePercent,
+            double rejectionRatePercent
+    ) {
+    }
 
     public record RecentOrderItem(
             Long id,

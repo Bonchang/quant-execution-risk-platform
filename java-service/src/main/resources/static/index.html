@@ -3,48 +3,71 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QERP Progress Dashboard</title>
+  <title>QERP Mission Control</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<div class="bg-grid"></div>
-<main class="container">
+<div class="atmosphere"></div>
+<main class="shell">
   <header class="hero">
-    <h1>QERP Live Progress</h1>
-    <p>주문, 리스크, 체결, 포지션 상태를 실시간으로 확인합니다.</p>
-    <div class="actions">
+    <div>
+      <p class="eyebrow">Quant Execution Risk Platform</p>
+      <h1>Mission Control Dashboard</h1>
+      <p class="sub">주문 생성, 리스크 판정, 체결, 포지션 업데이트를 한 화면에서 확인합니다.</p>
+    </div>
+    <div class="toolbar">
+      <button id="seed-btn" type="button">데모 데이터 생성</button>
       <button id="refresh-btn" type="button">새로고침</button>
-      <label class="toggle"><input id="auto-refresh" type="checkbox" checked> 5초 자동 새로고침</label>
+      <label class="switch">
+        <input id="auto-refresh" type="checkbox" checked>
+        <span>5초 자동새로고침</span>
+      </label>
     </div>
   </header>
 
+  <section class="grid kpis" id="summary-cards"></section>
+
   <section class="panel">
-    <h2>빠른 주문 생성</h2>
-    <form id="order-form" class="form-grid">
-      <label>StrategyRun ID<input name="strategyRunId" type="number" required min="1"></label>
-      <label>Instrument ID<input name="instrumentId" type="number" required min="1"></label>
+    <h2>신규 주문</h2>
+    <form id="order-form" class="order-grid">
+      <label>Strategy Run
+        <select id="strategy-run-select" name="strategyRunId" required></select>
+      </label>
+      <label>Instrument
+        <select id="instrument-select" name="instrumentId" required></select>
+      </label>
       <label>Side
         <select name="side" required>
           <option value="BUY">BUY</option>
           <option value="SELL">SELL</option>
         </select>
       </label>
-      <label>Quantity<input name="quantity" type="number" required min="0.000001" step="0.000001"></label>
+      <label>Quantity
+        <input name="quantity" type="number" min="0.000001" step="0.000001" value="10" required>
+      </label>
       <label>Order Type
         <select name="orderType" required>
           <option value="MARKET">MARKET</option>
           <option value="LIMIT">LIMIT</option>
         </select>
       </label>
-      <label>Client Order ID<input name="clientOrderId" type="text" required maxlength="64"></label>
+      <label>Client Order ID
+        <input name="clientOrderId" type="text" maxlength="64" required>
+      </label>
       <button class="submit" type="submit">주문 전송</button>
     </form>
-    <pre id="order-result" class="result">아직 주문 요청 없음</pre>
+    <pre id="order-result" class="result">주문 결과가 여기에 표시됩니다.</pre>
   </section>
 
-  <section class="panel">
-    <h2>주문 상태 집계</h2>
-    <div id="status-cards" class="cards"></div>
+  <section class="grid">
+    <article class="panel">
+      <h2>주문 상태 분포</h2>
+      <div id="status-cards" class="status-cards"></div>
+    </article>
+    <article class="panel">
+      <h2>실시간 메모</h2>
+      <ul id="event-feed" class="event-feed"></ul>
+    </article>
   </section>
 
   <section class="panel">
@@ -53,18 +76,19 @@
   </section>
 
   <section class="panel">
-    <h2>최근 리스크 체크</h2>
+    <h2>리스크 체크 결과</h2>
     <div class="table-wrap"><table id="risk-table"></table></div>
   </section>
 
-  <section class="panel">
-    <h2>최근 체결</h2>
-    <div class="table-wrap"><table id="fills-table"></table></div>
-  </section>
-
-  <section class="panel">
-    <h2>현재 포지션</h2>
-    <div class="table-wrap"><table id="positions-table"></table></div>
+  <section class="grid">
+    <article class="panel">
+      <h2>최근 체결</h2>
+      <div class="table-wrap"><table id="fills-table"></table></div>
+    </article>
+    <article class="panel">
+      <h2>현재 포지션</h2>
+      <div class="table-wrap"><table id="positions-table"></table></div>
+    </article>
   </section>
 </main>
 <script src="/app.js"></script>
