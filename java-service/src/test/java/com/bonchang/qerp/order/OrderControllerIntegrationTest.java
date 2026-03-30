@@ -168,6 +168,16 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.message").value("strategyRunId not found"));
     }
 
+    @Test
+    void ingestMarketData_withoutApiKey_returnsAcceptedWithFailureMessage() throws Exception {
+        mockMvc.perform(post("/market-data/ingest"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.totalInstruments").value(0))
+                .andExpect(jsonPath("$.successCount").value(0))
+                .andExpect(jsonPath("$.failureCount").value(0))
+                .andExpect(jsonPath("$.failures[0]").value("market-data.api-key is not configured"));
+    }
+
     private Long insertStrategyRun() {
         return jdbcTemplate.queryForObject(
                 """
