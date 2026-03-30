@@ -30,6 +30,7 @@ public class MarketDataIngestionService {
     private final InstrumentRepository instrumentRepository;
     private final MarketPriceRepository marketPriceRepository;
     private final MarketDataProperties marketDataProperties;
+    private final MarketDataStatusService marketDataStatusService;
     private final RestTemplateBuilder restTemplateBuilder;
 
     @Scheduled(fixedDelayString = "${market-data.poll-ms:60000}")
@@ -39,6 +40,9 @@ public class MarketDataIngestionService {
         }
         if (marketDataProperties.getApiKey() == null || marketDataProperties.getApiKey().isBlank()) {
             log.warn("market-data.enabled=true but market-data.api-key is empty; skipping scheduled ingestion");
+            marketDataStatusService.update(
+                    new MarketDataIngestionResult(0, 0, 0, List.of(), List.of("market-data.api-key is not configured"))
+            );
             return;
         }
 
@@ -52,7 +56,11 @@ public class MarketDataIngestionService {
     @Transactional
     public MarketDataIngestionResult ingestLatestPrices() {
         if (marketDataProperties.getApiKey() == null || marketDataProperties.getApiKey().isBlank()) {
-            return new MarketDataIngestionResult(0, 0, 0, List.of("market-data.api-key is not configured"));
+            MarketDataIngestionResult result = new MarketDataIngestionResult(
+                    0, 0, 0, List.of(), List.of("market-data.api-key is not configured")
+            );
+            marketDataStatusService.update(result);
+            return result;
         }
 
         List<Instrument> instruments = instrumentRepository.findAll().stream()
@@ -62,6 +70,7 @@ public class MarketDataIngestionService {
 
         int success = 0;
         int failure = 0;
+        List<String> updatedSymbols = new ArrayList<>();
         List<String> failures = new ArrayList<>();
 
         RestTemplate restTemplate = restTemplateBuilder.build();
@@ -90,6 +99,7 @@ public class MarketDataIngestionService {
 
                 marketPriceRepository.save(marketPrice);
                 success++;
+                updatedSymbols.add(instrument.getSymbol());
             } catch (Exception ex) {
                 failure++;
                 failures.add(instrument.getSymbol() + ": " + ex.getMessage());
@@ -97,7 +107,11 @@ public class MarketDataIngestionService {
             }
         }
 
-        return new MarketDataIngestionResult(instruments.size(), success, failure, failures);
+        MarketDataIngestionResult result = new MarketDataIngestionResult(
+                instruments.size(), success, failure, updatedSymbols, failures
+        );
+        marketDataStatusService.update(result);
+        return result;
     }
 
     private FinnhubQuoteResponse fetchFinnhubQuote(RestTemplate restTemplate, String symbol) {

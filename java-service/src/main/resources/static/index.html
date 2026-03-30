@@ -17,6 +17,7 @@
     </div>
     <div class="toolbar">
       <button id="seed-btn" type="button">데모 데이터 생성</button>
+      <button id="ingest-btn" type="button">시세 수집 실행</button>
       <button id="refresh-btn" type="button">새로고침</button>
       <label class="switch">
         <input id="auto-refresh" type="checkbox" checked>
@@ -26,6 +27,12 @@
   </header>
 
   <section class="grid kpis" id="summary-cards"></section>
+
+  <section class="panel">
+    <h2>외부 시세 연동 상태</h2>
+    <div id="marketdata-status" class="marketdata-status"></div>
+    <pre id="marketdata-result" class="result">아직 시세 수집 요청 없음</pre>
+  </section>
 
   <section class="panel">
     <h2>신규 주문</h2>

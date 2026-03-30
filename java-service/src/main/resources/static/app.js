@@ -5,6 +5,8 @@ const state = {
 
 const summaryCards = document.getElementById('summary-cards');
 const statusCards = document.getElementById('status-cards');
+const marketDataStatus = document.getElementById('marketdata-status');
+const marketDataResult = document.getElementById('marketdata-result');
 const ordersTable = document.getElementById('orders-table');
 const riskTable = document.getElementById('risk-table');
 const fillsTable = document.getElementById('fills-table');
@@ -16,6 +18,7 @@ const strategyRunSelect = document.getElementById('strategy-run-select');
 const instrumentSelect = document.getElementById('instrument-select');
 const refreshBtn = document.getElementById('refresh-btn');
 const seedBtn = document.getElementById('seed-btn');
+const ingestBtn = document.getElementById('ingest-btn');
 const autoRefreshToggle = document.getElementById('auto-refresh');
 
 function fmt(value) {
@@ -54,9 +57,7 @@ function renderSummary(summary) {
 function renderStatusCounts(counts) {
   const statuses = Object.keys(counts || {}).sort();
   statusCards.innerHTML = statuses.length
-    ? statuses
-      .map((status) => `<div class="status"><div class="name">${status}</div><div class="count">${counts[status]}</div></div>`)
-      .join('')
+    ? statuses.map((status) => `<div class="status"><div class="name">${status}</div><div class="count">${counts[status]}</div></div>`).join('')
     : '<div class="status"><div class="name">ORDERS</div><div class="count">0</div></div>';
 }
 
@@ -84,6 +85,28 @@ function renderEventFeed(data) {
     .join('');
 }
 
+function renderMarketDataStatus(status) {
+  const result = status.lastResult || {};
+  const cards = [
+    ['활성화', status.enabled ? 'ON' : 'OFF'],
+    ['API Key', status.apiKeyConfigured ? 'SET' : 'EMPTY'],
+    ['마지막 실행', fmtTime(status.lastRunAt)],
+    ['대상 종목수', fmt(result.totalInstruments)],
+    ['성공', fmt(result.successCount)],
+    ['실패', fmt(result.failureCount)],
+  ];
+
+  marketDataStatus.innerHTML = cards
+    .map(([name, value]) => `<div class="mstat"><div class="name">${name}</div><div class="count">${value}</div></div>`)
+    .join('');
+
+  const updated = Array.isArray(result.updatedSymbols) ? result.updatedSymbols : [];
+  const failures = Array.isArray(result.failures) ? result.failures : [];
+  if (updated.length || failures.length) {
+    marketDataResult.textContent = JSON.stringify({ updatedSymbols: updated, failures }, null, 2);
+  }
+}
+
 function renderOverview(data) {
   renderSummary(data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 });
   renderStatusCounts(data.statusCounts || {});
@@ -92,9 +115,7 @@ function renderOverview(data) {
   renderTable(
     ordersTable,
     ['ID', 'ClientOrderId', 'Status', 'Side', 'Qty', 'Type', 'Instrument', 'Strategy', 'CreatedAt'],
-    (data.recentOrders || []).map((o) => [
-      fmt(o.id), fmt(o.clientOrderId), fmt(o.status), fmt(o.side), fmt(o.quantity), fmt(o.orderType), fmt(o.instrumentSymbol), fmt(o.strategyName), fmtTime(o.createdAt),
-    ]),
+    (data.recentOrders || []).map((o) => [fmt(o.id), fmt(o.clientOrderId), fmt(o.status), fmt(o.side), fmt(o.quantity), fmt(o.orderType), fmt(o.instrumentSymbol), fmt(o.strategyName), fmtTime(o.createdAt)]),
   );
 
   renderTable(
@@ -130,6 +151,15 @@ async function loadOverview() {
   }
   const data = await response.json();
   renderOverview(data);
+}
+
+async function loadMarketDataStatus() {
+  const response = await fetch('/market-data/status');
+  if (!response.ok) {
+    throw new Error(`market-data status failed: ${response.status}`);
+  }
+  const data = await response.json();
+  renderMarketDataStatus(data);
 }
 
 function fillOptions(response) {
@@ -177,8 +207,14 @@ async function createDemoData() {
     throw new Error(`seed failed: ${response.status}`);
   }
   orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
-  await loadOptions();
-  await loadOverview();
+  await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
+}
+
+async function ingestMarketData() {
+  const response = await fetch('/market-data/ingest', { method: 'POST' });
+  const body = await response.json();
+  marketDataResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
+  await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
 }
 
 async function submitOrder(evt) {
@@ -203,7 +239,7 @@ async function submitOrder(evt) {
   const body = await response.json().catch(() => ({}));
   orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
 
-  await loadOverview();
+  await Promise.all([loadOverview(), loadMarketDataStatus()]);
 }
 
 function setAutoRefresh(enabled) {
@@ -213,15 +249,15 @@ function setAutoRefresh(enabled) {
   }
   if (enabled) {
     state.timerId = setInterval(() => {
-      loadOverview().catch((err) => {
-        orderResult.textContent = `overview refresh error: ${err.message}`;
+      Promise.all([loadOverview(), loadMarketDataStatus()]).catch((err) => {
+        orderResult.textContent = `refresh error: ${err.message}`;
       });
     }, 5000);
   }
 }
 
 refreshBtn.addEventListener('click', () => {
-  Promise.all([loadOverview(), loadOptions()]).catch((err) => {
+  Promise.all([loadOverview(), loadOptions(), loadMarketDataStatus()]).catch((err) => {
     orderResult.textContent = `refresh error: ${err.message}`;
   });
 });
@@ -229,6 +265,12 @@ refreshBtn.addEventListener('click', () => {
 seedBtn.addEventListener('click', () => {
   createDemoData().catch((err) => {
     orderResult.textContent = `seed error: ${err.message}`;
+  });
+});
+
+ingestBtn.addEventListener('click', () => {
+  ingestMarketData().catch((err) => {
+    marketDataResult.textContent = `ingest error: ${err.message}`;
   });
 });
 
@@ -244,8 +286,7 @@ orderForm.addEventListener('submit', (evt) => {
 
 (async () => {
   try {
-    await loadOptions();
-    await loadOverview();
+    await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
     setAutoRefresh(true);
   } catch (err) {
     orderResult.textContent = `initial load error: ${err.message}`;

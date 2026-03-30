@@ -1,5 +1,6 @@
 package com.bonchang.qerp.order;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -175,7 +176,21 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.totalInstruments").value(0))
                 .andExpect(jsonPath("$.successCount").value(0))
                 .andExpect(jsonPath("$.failureCount").value(0))
+                .andExpect(jsonPath("$.updatedSymbols").isArray())
                 .andExpect(jsonPath("$.failures[0]").value("market-data.api-key is not configured"));
+    }
+
+    @Test
+    void marketDataStatus_afterIngest_exposesLastResult() throws Exception {
+        mockMvc.perform(post("/market-data/ingest"))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(get("/market-data/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.apiKeyConfigured").value(false))
+                .andExpect(jsonPath("$.lastResult.failureCount").value(0))
+                .andExpect(jsonPath("$.lastResult.failures[0]").value("market-data.api-key is not configured"));
     }
 
     private Long insertStrategyRun() {

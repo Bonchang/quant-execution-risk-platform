@@ -89,6 +89,11 @@ button {
   color: #fff;
 }
 
+#ingest-btn {
+  background: #7c3aed;
+  color: #fff;
+}
+
 #refresh-btn {
   background: #0ea5e9;
   color: #fff;
@@ -184,6 +189,29 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
+}
+
+.marketdata-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.mstat {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.mstat .name {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.mstat .count {
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .status {
