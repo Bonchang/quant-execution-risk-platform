@@ -1,5 +1,7 @@
 package com.bonchang.qerp.order;
 
 public enum OrderStatus {
-    CREATED
+    CREATED,
+    APPROVED,
+    REJECTED
 }
