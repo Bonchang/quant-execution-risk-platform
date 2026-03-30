@@ -48,17 +48,13 @@ public class OrderService {
         order.setClientOrderId(request.clientOrderId());
         order.setCreatedAt(LocalDateTime.now());
 
-<<<<<<< ours
-        Order saved = orderRepository.save(order);
-        Order evaluated = riskEvaluationService.evaluateAndUpdateOrderStatus(saved);
-=======
         Order saved;
         try {
             saved = orderRepository.save(order);
         } catch (DataIntegrityViolationException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "duplicate clientOrderId for strategyRunId", ex);
         }
->>>>>>> theirs
+        Order evaluated = riskEvaluationService.evaluateAndUpdateOrderStatus(saved);
 
         return new CreateOrderResponse(
                 evaluated.getId(),
