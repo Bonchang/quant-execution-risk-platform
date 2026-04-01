@@ -130,23 +130,9 @@ flowchart LR
 - 현재 구현 상태를 사람이 즉시 검증 가능한 형태로 제공
 - 주문 생성 -> 리스크 판정 -> 체결 -> 포지션 반영까지 한 화면에서 추적
 
-## 9. Local Run Guide
 
-```bash
-# repository root
-cd /Users/bonchang/Desktop/Develop/InteliJ/project/quant-execution-risk-platform
 
-# postgres
-/Applications/Docker.app/Contents/Resources/bin/docker compose up -d
-
-# java service
-cd java-service
-./gradlew bootRun
-```
-
-브라우저: `http://localhost:8080/`
-
-## 10. Documentation Index
+## 9. Documentation Index
 
 - [System Architecture](docs/system-architecture.md)
 - [MVP Scope and Status](docs/mvp.md)
