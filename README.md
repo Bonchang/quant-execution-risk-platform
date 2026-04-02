@@ -56,6 +56,7 @@ quant-execution-risk-platform/
    - 주문당 다중 `fill` 적재 지원
    - 체결 단위 `position` 누적 반영
    - 주문 실행 수량(`filled_quantity`, `remaining_quantity`) 추적
+   - LIMIT 조건가(`limit_price`) 기반 체결 지원
 7. Flyway 마이그레이션
    - `V1` core schema
    - `V2` risk check results
@@ -125,8 +126,12 @@ flowchart LR
   - 데모 목적상 2개 체결 청크로 분할하여 저장 (합계는 주문 수량과 동일)
   - 최종 상태는 `FILLED`
 - `LIMIT` 주문
-  - MVP 단순화 정책으로 승인 직후 50%만 체결
-  - 나머지는 미체결로 유지하여 `PARTIALLY_FILLED` 상태를 표현
+  - `limit_price`가 필수
+  - 체결 기준가는 최신 `market_price.close_price`
+  - BUY LIMIT: `close_price <= limit_price`일 때 전량 체결
+  - SELL LIMIT: `close_price >= limit_price`일 때 전량 체결
+  - 조건 미충족 시 주문은 `APPROVED` 상태로 미체결 유지 (fill/position 변화 없음)
+  - 참고: 과거의 "승인 직후 50% 체결" 단순 정책은 현재 코드에서 사용하지 않음
 - 감사 추적
   - 주문별 요청/체결/잔량은 `orders.quantity`, `orders.filled_quantity`, `orders.remaining_quantity`로 조회
   - 체결 이력은 `fill`의 다중 레코드로 복원
@@ -151,4 +156,3 @@ flowchart LR
 - [System Architecture](docs/system-architecture.md)
 - [MVP Scope and Status](docs/mvp.md)
 - [ERD Draft](docs/erd-draft.md)
-

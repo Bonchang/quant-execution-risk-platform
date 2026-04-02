@@ -61,6 +61,9 @@ public class Order {
     @Column(name = "order_type", nullable = false, length = 16)
     private OrderType orderType;
 
+    @Column(name = "limit_price", precision = 19, scale = 6)
+    private BigDecimal limitPrice;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
     private OrderStatus status;

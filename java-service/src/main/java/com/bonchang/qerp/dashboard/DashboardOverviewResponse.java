@@ -29,6 +29,7 @@ public record DashboardOverviewResponse(
             String status,
             String side,
             BigDecimal requestedQuantity,
+            BigDecimal limitPrice,
             BigDecimal filledQuantity,
             BigDecimal remainingQuantity,
             String orderType,

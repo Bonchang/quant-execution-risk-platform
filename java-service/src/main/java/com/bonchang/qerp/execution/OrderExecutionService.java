@@ -40,8 +40,15 @@ public class OrderExecutionService {
             return order;
         }
 
-        BigDecimal fillPrice = resolveFillPrice(order);
-        List<BigDecimal> plan = buildExecutionPlan(order);
+        if (order.getOrderType() == OrderType.MARKET) {
+            return executeMarketOrder(order);
+        }
+        return executeLimitOrder(order);
+    }
+
+    private Order executeMarketOrder(Order order) {
+        BigDecimal fillPrice = resolveMarketPrice(order).orElse(defaultFillPrice);
+        List<BigDecimal> plan = marketExecutionPlan(order);
         if (plan.isEmpty()) {
             order.setUpdatedAt(LocalDateTime.now());
             return orderRepository.save(order);
@@ -55,11 +62,24 @@ public class OrderExecutionService {
         return orderRepository.save(order);
     }
 
-    private List<BigDecimal> buildExecutionPlan(Order order) {
-        if (order.getOrderType() == OrderType.MARKET) {
-            return marketExecutionPlan(order);
+    private Order executeLimitOrder(Order order) {
+        Optional<BigDecimal> currentPrice = resolveMarketPrice(order);
+        if (currentPrice.isEmpty()) {
+            order.setUpdatedAt(LocalDateTime.now());
+            return orderRepository.save(order);
         }
-        return limitExecutionPlan(order);
+        if (!isExecutableLimitOrder(order, currentPrice.get())) {
+            order.setUpdatedAt(LocalDateTime.now());
+            return orderRepository.save(order);
+        }
+
+        BigDecimal remaining = sanitizeScale(order.getRemainingQuantity());
+        if (remaining.compareTo(ZERO) > 0) {
+            applyFill(order, currentPrice.get(), remaining);
+        }
+        updateOrderStatusAfterExecution(order);
+        order.setUpdatedAt(LocalDateTime.now());
+        return orderRepository.save(order);
     }
 
     private List<BigDecimal> marketExecutionPlan(Order order) {
@@ -80,25 +100,17 @@ public class OrderExecutionService {
         return chunks;
     }
 
-    private List<BigDecimal> limitExecutionPlan(Order order) {
-        BigDecimal remaining = sanitizeScale(order.getRemainingQuantity());
-        if (remaining.compareTo(ZERO) <= 0) {
-            return List.of();
+    private boolean isExecutableLimitOrder(Order order, BigDecimal currentPrice) {
+        BigDecimal limitPrice = sanitizeScale(order.getLimitPrice());
+        if (order.getSide() == OrderSide.BUY) {
+            return currentPrice.compareTo(limitPrice) <= 0;
         }
-
-        BigDecimal partial = remaining.multiply(new BigDecimal("0.500000"))
-                .setScale(6, RoundingMode.HALF_UP);
-        if (partial.compareTo(ZERO) <= 0) {
-            return List.of();
-        }
-        return List.of(partial);
+        return currentPrice.compareTo(limitPrice) >= 0;
     }
 
-    private BigDecimal resolveFillPrice(Order order) {
-        Optional<MarketPrice> latest = marketPriceRepository.findFirstByInstrumentIdOrderByPriceDateDescIdDesc(
-                order.getInstrument().getId()
-        );
-        return latest.map(MarketPrice::getClosePrice).orElse(defaultFillPrice);
+    private Optional<BigDecimal> resolveMarketPrice(Order order) {
+        return marketPriceRepository.findFirstByInstrumentIdOrderByPriceDateDescIdDesc(order.getInstrument().getId())
+                .map(MarketPrice::getClosePrice);
     }
 
     private void applyFill(Order order, BigDecimal fillPrice, BigDecimal fillQuantity) {

@@ -34,6 +34,7 @@ public class OrderService {
 
     @Transactional
     public CreateOrderResponse createOrder(CreateOrderRequest request) {
+        validateOrderRequest(request);
         if (!strategyRunRepository.existsById(request.strategyRunId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "strategyRunId not found");
         }
@@ -47,6 +48,7 @@ public class OrderService {
         order.setSide(request.side());
         order.setQuantity(request.quantity());
         order.setOrderType(request.orderType());
+        order.setLimitPrice(request.orderType() == OrderType.LIMIT ? request.limitPrice() : null);
         order.setStatus(OrderStatus.CREATED);
         order.setClientOrderId(request.clientOrderId());
         order.setCreatedAt(LocalDateTime.now());
@@ -69,6 +71,7 @@ public class OrderService {
                 request.instrumentId(),
                 executed.getSide(),
                 executed.getQuantity(),
+                executed.getLimitPrice(),
                 executed.getFilledQuantity(),
                 executed.getRemainingQuantity(),
                 executed.getOrderType(),
@@ -78,5 +81,14 @@ public class OrderService {
                 executed.getLastExecutedAt(),
                 executed.getUpdatedAt()
         );
+    }
+
+    private void validateOrderRequest(CreateOrderRequest request) {
+        if (request.orderType() == OrderType.LIMIT && request.limitPrice() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limitPrice is required for LIMIT order");
+        }
+        if (request.orderType() == OrderType.MARKET && request.limitPrice() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limitPrice must be null for MARKET order");
+        }
     }
 }
