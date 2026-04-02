@@ -155,7 +155,7 @@ flowchart LR
 
 - `JavaServiceApplication`은 `@EnableScheduling`을 사용하므로, 시장데이터 수집 스케줄이 런타임에서 활성화 가능하다.
 - DB 스키마는 Flyway(`spring.flyway.enabled: true`, `classpath:db/migration`)로 관리되고, JPA는 `ddl-auto: validate`로 검증만 수행한다.
-- 로컬 DB 표준은 `compose.yml`의 PostgreSQL 16 (`qerp/postgres/postgres`, `5432`)이다.
+- 로컬 DB 표준은 `compose.yml`의 PostgreSQL 16 (`postgres:16`, `5432`)이다.
 
 #### 계층 구조
 
@@ -223,6 +223,8 @@ flowchart LR
 1. 우선순위: `market_price` 최신 종가 조회  
    (`findFirstByInstrumentIdOrderByPriceDateDescIdDesc`)
 2. 없으면 fallback: `execution.default-fill-price` (기본 `1.000000`)
+
+참고: 메서드명의 `...PriceDateDescIdDesc`는 동일 날짜 데이터에서 `id DESC`로 최신 레코드를 추가 tie-break 하도록 의도된 구현이다.
 
 #### Fill 처리
 
