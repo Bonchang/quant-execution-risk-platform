@@ -14,6 +14,7 @@ public record CreateOrderRequest(
         @NotNull OrderSide side,
         @NotNull @DecimalMin(value = "0.000001", inclusive = true) BigDecimal quantity,
         @NotNull OrderType orderType,
+        @DecimalMin(value = "0.000001", inclusive = true) BigDecimal limitPrice,
         @NotBlank @Size(max = 64) String clientOrderId
 ) {
 }

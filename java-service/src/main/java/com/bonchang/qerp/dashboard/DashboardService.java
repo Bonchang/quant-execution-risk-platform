@@ -168,11 +168,15 @@ public class DashboardService {
                        o.client_order_id,
                        o.status,
                        o.side,
-                       o.quantity,
+                       o.quantity AS requested_quantity,
+                       o.limit_price,
+                       o.filled_quantity,
+                       o.remaining_quantity,
                        o.order_type,
                        i.symbol AS instrument_symbol,
                        s.strategy_name,
-                       o.created_at
+                       o.created_at,
+                       o.updated_at
                 FROM orders o
                 JOIN instrument i ON i.id = o.instrument_id
                 JOIN strategy_run s ON s.id = o.strategy_run_id
@@ -184,11 +188,15 @@ public class DashboardService {
                         rs.getString("client_order_id"),
                         rs.getString("status"),
                         rs.getString("side"),
-                        rs.getBigDecimal("quantity"),
+                        rs.getBigDecimal("requested_quantity"),
+                        rs.getBigDecimal("limit_price"),
+                        rs.getBigDecimal("filled_quantity"),
+                        rs.getBigDecimal("remaining_quantity"),
                         rs.getString("order_type"),
                         rs.getString("instrument_symbol"),
                         rs.getString("strategy_name"),
-                        rs.getTimestamp("created_at").toLocalDateTime()
+                        rs.getTimestamp("created_at").toLocalDateTime(),
+                        rs.getTimestamp("updated_at").toLocalDateTime()
                 ),
                 limit
         );

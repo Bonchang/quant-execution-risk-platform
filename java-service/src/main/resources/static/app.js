@@ -114,8 +114,22 @@ function renderOverview(data) {
 
   renderTable(
     ordersTable,
-    ['ID', 'ClientOrderId', 'Status', 'Side', 'Qty', 'Type', 'Instrument', 'Strategy', 'CreatedAt'],
-    (data.recentOrders || []).map((o) => [fmt(o.id), fmt(o.clientOrderId), fmt(o.status), fmt(o.side), fmt(o.quantity), fmt(o.orderType), fmt(o.instrumentSymbol), fmt(o.strategyName), fmtTime(o.createdAt)]),
+    ['ID', 'ClientOrderId', 'Status', 'Side', 'ReqQty', 'LimitPx', 'FilledQty', 'RemainQty', 'Type', 'Instrument', 'Strategy', 'CreatedAt', 'UpdatedAt'],
+    (data.recentOrders || []).map((o) => [
+      fmt(o.id),
+      fmt(o.clientOrderId),
+      fmt(o.status),
+      fmt(o.side),
+      fmt(o.requestedQuantity),
+      fmt(o.limitPrice),
+      fmt(o.filledQuantity),
+      fmt(o.remainingQuantity),
+      fmt(o.orderType),
+      fmt(o.instrumentSymbol),
+      fmt(o.strategyName),
+      fmtTime(o.createdAt),
+      fmtTime(o.updatedAt),
+    ]),
   );
 
   renderTable(
@@ -227,6 +241,7 @@ async function submitOrder(evt) {
     side: formData.get('side'),
     quantity: String(formData.get('quantity')),
     orderType: formData.get('orderType'),
+    limitPrice: formData.get('limitPrice') ? String(formData.get('limitPrice')) : null,
     clientOrderId: String(formData.get('clientOrderId')),
   };
 
