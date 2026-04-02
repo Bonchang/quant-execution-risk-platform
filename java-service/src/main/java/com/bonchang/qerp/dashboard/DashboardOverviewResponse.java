@@ -28,11 +28,14 @@ public record DashboardOverviewResponse(
             String clientOrderId,
             String status,
             String side,
-            BigDecimal quantity,
+            BigDecimal requestedQuantity,
+            BigDecimal filledQuantity,
+            BigDecimal remainingQuantity,
             String orderType,
             String instrumentSymbol,
             String strategyName,
-            LocalDateTime createdAt
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
     ) {
     }
 

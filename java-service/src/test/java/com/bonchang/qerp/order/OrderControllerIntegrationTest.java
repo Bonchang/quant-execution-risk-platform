@@ -82,6 +82,8 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.instrumentId").value(instrumentId))
                 .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("10.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"))
                 .andExpect(jsonPath("$.clientOrderId").value("client-001"));
 
         Integer fillCount = jdbcTemplate.queryForObject(
@@ -93,8 +95,46 @@ class OrderControllerIntegrationTest {
                 Integer.class
         );
 
-        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
         org.assertj.core.api.Assertions.assertThat(positionCount).isEqualTo(1);
+    }
+
+    @Test
+    void createOrder_marketOrder_persistsMultipleFillsAndUpdatesPositionCumulatively() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "11.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "market-multi-fill-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("11.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'market-multi-fill-001')",
+                Integer.class
+        );
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
+
+        String netQuantity = jdbcTemplate.queryForObject(
+                "SELECT TO_CHAR(net_quantity, 'FM9999999990.000000') FROM position WHERE strategy_run_id = ? AND instrument_id = ?",
+                String.class,
+                strategyRunId,
+                instrumentId
+        );
+        org.assertj.core.api.Assertions.assertThat(netQuantity).isEqualTo("11.000000");
     }
 
     @Test
@@ -146,6 +186,36 @@ class OrderControllerIntegrationTest {
 
         Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
         org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
+    }
+
+    @Test
+    void createOrder_limitOrder_partialFillScenario() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "LIMIT",
+                "clientOrderId", "limit-partial-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PARTIALLY_FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("5.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("5.000000"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'limit-partial-001')",
+                Integer.class
+        );
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
     }
 
     @Test

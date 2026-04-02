@@ -12,9 +12,13 @@ public record CreateOrderResponse(
         Long instrumentId,
         OrderSide side,
         BigDecimal quantity,
+        BigDecimal filledQuantity,
+        BigDecimal remainingQuantity,
         OrderType orderType,
         OrderStatus status,
         String clientOrderId,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        LocalDateTime lastExecutedAt,
+        LocalDateTime updatedAt
 ) {
 }

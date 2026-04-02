@@ -114,8 +114,21 @@ function renderOverview(data) {
 
   renderTable(
     ordersTable,
-    ['ID', 'ClientOrderId', 'Status', 'Side', 'Qty', 'Type', 'Instrument', 'Strategy', 'CreatedAt'],
-    (data.recentOrders || []).map((o) => [fmt(o.id), fmt(o.clientOrderId), fmt(o.status), fmt(o.side), fmt(o.quantity), fmt(o.orderType), fmt(o.instrumentSymbol), fmt(o.strategyName), fmtTime(o.createdAt)]),
+    ['ID', 'ClientOrderId', 'Status', 'Side', 'ReqQty', 'FilledQty', 'RemainQty', 'Type', 'Instrument', 'Strategy', 'CreatedAt', 'UpdatedAt'],
+    (data.recentOrders || []).map((o) => [
+      fmt(o.id),
+      fmt(o.clientOrderId),
+      fmt(o.status),
+      fmt(o.side),
+      fmt(o.requestedQuantity),
+      fmt(o.filledQuantity),
+      fmt(o.remainingQuantity),
+      fmt(o.orderType),
+      fmt(o.instrumentSymbol),
+      fmt(o.strategyName),
+      fmtTime(o.createdAt),
+      fmtTime(o.updatedAt),
+    ]),
   );
 
   renderTable(
