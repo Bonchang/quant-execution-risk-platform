@@ -10,6 +10,7 @@ import com.bonchang.qerp.strategyrun.StrategyRun;
 import com.bonchang.qerp.strategyrun.StrategyRunRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -49,6 +50,9 @@ public class OrderService {
         order.setStatus(OrderStatus.CREATED);
         order.setClientOrderId(request.clientOrderId());
         order.setCreatedAt(LocalDateTime.now());
+        order.setFilledQuantity(BigDecimal.ZERO);
+        order.setRemainingQuantity(request.quantity());
+        order.setUpdatedAt(order.getCreatedAt());
 
         Order saved;
         try {
@@ -65,10 +69,14 @@ public class OrderService {
                 request.instrumentId(),
                 executed.getSide(),
                 executed.getQuantity(),
+                executed.getFilledQuantity(),
+                executed.getRemainingQuantity(),
                 executed.getOrderType(),
                 executed.getStatus(),
                 executed.getClientOrderId(),
-                executed.getCreatedAt()
+                executed.getCreatedAt(),
+                executed.getLastExecutedAt(),
+                executed.getUpdatedAt()
         );
     }
 }
