@@ -131,6 +131,7 @@ flowchart LR
   - BUY LIMIT: `close_price <= limit_price`일 때 전량 체결
   - SELL LIMIT: `close_price >= limit_price`일 때 전량 체결
   - 조건 미충족 시 주문은 `APPROVED` 상태로 미체결 유지 (fill/position 변화 없음)
+  - 참고: 과거의 "승인 직후 50% 체결" 단순 정책은 현재 코드에서 사용하지 않음
 - 감사 추적
   - 주문별 요청/체결/잔량은 `orders.quantity`, `orders.filled_quantity`, `orders.remaining_quantity`로 조회
   - 체결 이력은 `fill`의 다중 레코드로 복원
