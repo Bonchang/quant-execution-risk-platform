@@ -144,6 +144,44 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    void createOrder_marketOrder_persistsMultipleFillsAndUpdatesPositionCumulatively() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "11.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "market-multi-fill-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("11.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'market-multi-fill-001')",
+                Integer.class
+        );
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
+
+        String netQuantity = jdbcTemplate.queryForObject(
+                "SELECT TO_CHAR(net_quantity, 'FM9999999990.000000') FROM position WHERE strategy_run_id = ? AND instrument_id = ?",
+                String.class,
+                strategyRunId,
+                instrumentId
+        );
+        org.assertj.core.api.Assertions.assertThat(netQuantity).isEqualTo("11.000000");
+    }
+
+    @Test
     void createOrder_duplicateClientOrderIdPerStrategyRun_rejected() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
