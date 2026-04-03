@@ -12,12 +12,13 @@
   <header class="hero">
     <div>
       <p class="eyebrow">Quant Execution Risk Platform</p>
-      <h1>Mission Control Dashboard</h1>
-      <p class="sub">주문 생성, 리스크 판정, 체결, 포지션 업데이트를 한 화면에서 확인합니다.</p>
+      <h1>Quant Simulation Console</h1>
+      <p class="sub">포트폴리오 성과를 확인하고, 주문 → 리스크 → 체결 → 포지션 흐름을 한 화면에서 운영합니다.</p>
     </div>
     <div class="toolbar">
       <button id="seed-btn" type="button">데모 데이터 생성</button>
       <button id="ingest-btn" type="button">시세 수집 실행</button>
+      <button id="snapshot-btn" type="button">포트폴리오 스냅샷 갱신</button>
       <button id="refresh-btn" type="button">새로고침</button>
       <label class="switch">
         <input id="auto-refresh" type="checkbox" checked>
@@ -26,16 +27,22 @@
     </div>
   </header>
 
-  <section class="grid kpis" id="summary-cards"></section>
+  <section class="panel">
+    <h2>포트폴리오 핵심 지표</h2>
+    <p class="section-help">최신 스냅샷 기준 성과와 주문 처리 현황을 함께 보여줍니다.</p>
+    <section class="grid kpis" id="summary-cards"></section>
+    <section class="grid kpis portfolio-kpis" id="portfolio-kpis"></section>
+  </section>
 
   <section class="panel">
-    <h2>외부 시세 연동 상태</h2>
+    <h2>시장 데이터 / 시스템 상태</h2>
     <div id="marketdata-status" class="marketdata-status"></div>
     <pre id="marketdata-result" class="result">아직 시세 수집 요청 없음</pre>
   </section>
 
   <section class="panel">
-    <h2>신규 주문</h2>
+    <h2>주문 실행 시뮬레이션</h2>
+    <p class="section-help">주문 접수 후 리스크 검증과 체결 처리 결과가 아래 섹션에 순차적으로 반영됩니다.</p>
     <form id="order-form" class="order-grid">
       <label>Strategy Run
         <select id="strategy-run-select" name="strategyRunId" required></select>
@@ -58,6 +65,9 @@
           <option value="LIMIT">LIMIT</option>
         </select>
       </label>
+      <label>Limit Price (LIMIT only)
+        <input name="limitPrice" type="number" min="0.000001" step="0.000001" placeholder="예: 100.500000">
+      </label>
       <label>Client Order ID
         <input name="clientOrderId" type="text" maxlength="64" required>
       </label>
@@ -72,7 +82,7 @@
       <div id="status-cards" class="status-cards"></div>
     </article>
     <article class="panel">
-      <h2>실시간 메모</h2>
+      <h2>실행 이벤트 요약</h2>
       <ul id="event-feed" class="event-feed"></ul>
     </article>
   </section>
@@ -96,6 +106,16 @@
       <h2>현재 포지션</h2>
       <div class="table-wrap"><table id="positions-table"></table></div>
     </article>
+  </section>
+
+  <section class="panel">
+    <h2>포트폴리오 스냅샷 추이</h2>
+    <div id="portfolio-latest" class="portfolio-latest"></div>
+    <div class="trend-wrap">
+      <svg id="portfolio-trend" class="trend-chart" viewBox="0 0 640 180" preserveAspectRatio="none"></svg>
+      <p id="portfolio-trend-caption" class="trend-caption">스냅샷 이력이 있으면 추이를 표시합니다.</p>
+    </div>
+    <div class="table-wrap"><table id="portfolio-table"></table></div>
   </section>
 </main>
 <script src="/app.js"></script>
