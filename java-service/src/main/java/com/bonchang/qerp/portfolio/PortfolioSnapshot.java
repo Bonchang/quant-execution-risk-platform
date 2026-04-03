@@ -1,7 +1,5 @@
-package com.bonchang.qerp.fill;
+package com.bonchang.qerp.portfolio;
 
-import com.bonchang.qerp.instrument.Instrument;
-import com.bonchang.qerp.order.Order;
 import com.bonchang.qerp.strategyrun.StrategyRun;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -19,34 +17,35 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "fill")
+@Table(name = "portfolio_snapshot")
 @Getter
 @Setter
 @NoArgsConstructor
-public class Fill {
+public class PortfolioSnapshot {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "order_id", nullable = false)
-    private Order order;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "strategy_run_id", nullable = false)
     private StrategyRun strategyRun;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "instrument_id", nullable = false)
-    private Instrument instrument;
+    @Column(name = "snapshot_at", nullable = false)
+    private LocalDateTime snapshotAt;
 
-    @Column(name = "fill_quantity", nullable = false, precision = 19, scale = 6)
-    private BigDecimal fillQuantity;
+    @Column(name = "total_market_value", nullable = false, precision = 19, scale = 6)
+    private BigDecimal totalMarketValue;
 
-    @Column(name = "fill_price", nullable = false, precision = 19, scale = 6)
-    private BigDecimal fillPrice;
+    @Column(name = "unrealized_pnl", nullable = false, precision = 19, scale = 6)
+    private BigDecimal unrealizedPnl;
 
-    @Column(name = "filled_at", nullable = false)
-    private LocalDateTime filledAt;
+    @Column(name = "realized_pnl", nullable = false, precision = 19, scale = 6)
+    private BigDecimal realizedPnl;
+
+    @Column(name = "total_pnl", nullable = false, precision = 19, scale = 6)
+    private BigDecimal totalPnl;
+
+    @Column(name = "return_rate", nullable = false, precision = 19, scale = 6)
+    private BigDecimal returnRate;
 }

@@ -10,6 +10,7 @@ import com.bonchang.qerp.strategyrun.StrategyRun;
 import com.bonchang.qerp.strategyrun.StrategyRunRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -33,6 +34,7 @@ public class OrderService {
 
     @Transactional
     public CreateOrderResponse createOrder(CreateOrderRequest request) {
+        validateOrderRequest(request);
         if (!strategyRunRepository.existsById(request.strategyRunId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "strategyRunId not found");
         }
@@ -46,9 +48,13 @@ public class OrderService {
         order.setSide(request.side());
         order.setQuantity(request.quantity());
         order.setOrderType(request.orderType());
+        order.setLimitPrice(request.orderType() == OrderType.LIMIT ? request.limitPrice() : null);
         order.setStatus(OrderStatus.CREATED);
         order.setClientOrderId(request.clientOrderId());
         order.setCreatedAt(LocalDateTime.now());
+        order.setFilledQuantity(BigDecimal.ZERO);
+        order.setRemainingQuantity(request.quantity());
+        order.setUpdatedAt(order.getCreatedAt());
 
         Order saved;
         try {
@@ -65,10 +71,24 @@ public class OrderService {
                 request.instrumentId(),
                 executed.getSide(),
                 executed.getQuantity(),
+                executed.getLimitPrice(),
+                executed.getFilledQuantity(),
+                executed.getRemainingQuantity(),
                 executed.getOrderType(),
                 executed.getStatus(),
                 executed.getClientOrderId(),
-                executed.getCreatedAt()
+                executed.getCreatedAt(),
+                executed.getLastExecutedAt(),
+                executed.getUpdatedAt()
         );
+    }
+
+    private void validateOrderRequest(CreateOrderRequest request) {
+        if (request.orderType() == OrderType.LIMIT && request.limitPrice() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limitPrice is required for LIMIT order");
+        }
+        if (request.orderType() == OrderType.MARKET && request.limitPrice() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limitPrice must be null for MARKET order");
+        }
     }
 }

@@ -7,11 +7,13 @@ import java.util.Map;
 
 public record DashboardOverviewResponse(
         Summary summary,
+        PortfolioSummary portfolioSummary,
         Map<String, Long> statusCounts,
         List<RecentOrderItem> recentOrders,
         List<RiskCheckItem> recentRiskChecks,
         List<FillItem> recentFills,
-        List<PositionItem> positions
+        List<PositionItem> positions,
+        List<PortfolioSnapshotItem> recentPortfolioSnapshots
 ) {
 
     public record Summary(
@@ -28,11 +30,15 @@ public record DashboardOverviewResponse(
             String clientOrderId,
             String status,
             String side,
-            BigDecimal quantity,
+            BigDecimal requestedQuantity,
+            BigDecimal limitPrice,
+            BigDecimal filledQuantity,
+            BigDecimal remainingQuantity,
             String orderType,
             String instrumentSymbol,
             String strategyName,
-            LocalDateTime createdAt
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
     ) {
     }
 
@@ -63,6 +69,31 @@ public record DashboardOverviewResponse(
             BigDecimal netQuantity,
             BigDecimal averagePrice,
             LocalDateTime updatedAt
+    ) {
+    }
+
+    public record PortfolioSummary(
+            Long strategyRunId,
+            String strategyName,
+            LocalDateTime snapshotAt,
+            BigDecimal totalMarketValue,
+            BigDecimal unrealizedPnl,
+            BigDecimal realizedPnl,
+            BigDecimal totalPnl,
+            BigDecimal returnRate
+    ) {
+    }
+
+    public record PortfolioSnapshotItem(
+            Long id,
+            Long strategyRunId,
+            String strategyName,
+            LocalDateTime snapshotAt,
+            BigDecimal totalMarketValue,
+            BigDecimal unrealizedPnl,
+            BigDecimal realizedPnl,
+            BigDecimal totalPnl,
+            BigDecimal returnRate
     ) {
     }
 }
