@@ -28,7 +28,7 @@ public class InstrumentQuantityExposureRiskRule implements RiskRule {
     public RiskRuleResult evaluate(Order order) {
         BigDecimal existingApprovedQuantity = orderRepository.sumQuantityByInstrumentIdAndStatuses(
                 order.getInstrument().getId(),
-                List.of(OrderStatus.APPROVED, OrderStatus.FILLED)
+                List.of(OrderStatus.APPROVED, OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED)
         );
         BigDecimal projectedQuantity = existingApprovedQuantity.add(order.getQuantity());
         boolean passed = projectedQuantity.compareTo(maxInstrumentQuantity) <= 0;

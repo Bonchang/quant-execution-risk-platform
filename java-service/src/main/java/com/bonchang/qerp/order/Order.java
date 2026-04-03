@@ -51,9 +51,18 @@ public class Order {
     @Column(name = "quantity", nullable = false, precision = 19, scale = 6)
     private BigDecimal quantity;
 
+    @Column(name = "filled_quantity", nullable = false, precision = 19, scale = 6)
+    private BigDecimal filledQuantity;
+
+    @Column(name = "remaining_quantity", nullable = false, precision = 19, scale = 6)
+    private BigDecimal remainingQuantity;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "order_type", nullable = false, length = 16)
     private OrderType orderType;
+
+    @Column(name = "limit_price", precision = 19, scale = 6)
+    private BigDecimal limitPrice;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
@@ -64,4 +73,10 @@ public class Order {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "last_executed_at")
+    private LocalDateTime lastExecutedAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
 }

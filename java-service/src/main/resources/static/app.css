@@ -94,6 +94,11 @@ button {
   color: #fff;
 }
 
+#snapshot-btn {
+  background: #059669;
+  color: #fff;
+}
+
 #refresh-btn {
   background: #0ea5e9;
   color: #fff;
@@ -113,6 +118,10 @@ button {
 
 .kpis {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.portfolio-kpis {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .panel {
@@ -282,6 +291,9 @@ th {
 
 @media (max-width: 1000px) {
   .kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .portfolio-kpis {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
