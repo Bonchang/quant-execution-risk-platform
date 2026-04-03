@@ -32,4 +32,9 @@ public class DashboardController {
     public DashboardSeedResponse seedDemo() {
         return dashboardService.seedDemoData();
     }
+
+    @PostMapping("/portfolio-snapshots/refresh")
+    public DashboardPortfolioRefreshResponse refreshPortfolioSnapshots() {
+        return dashboardService.refreshPortfolioSnapshots();
+    }
 }

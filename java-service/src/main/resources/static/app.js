@@ -11,6 +11,11 @@ const ordersTable = document.getElementById('orders-table');
 const riskTable = document.getElementById('risk-table');
 const fillsTable = document.getElementById('fills-table');
 const positionsTable = document.getElementById('positions-table');
+const portfolioKpis = document.getElementById('portfolio-kpis');
+const portfolioTable = document.getElementById('portfolio-table');
+const portfolioLatest = document.getElementById('portfolio-latest');
+const portfolioTrend = document.getElementById('portfolio-trend');
+const portfolioTrendCaption = document.getElementById('portfolio-trend-caption');
 const eventFeed = document.getElementById('event-feed');
 const orderResult = document.getElementById('order-result');
 const orderForm = document.getElementById('order-form');
@@ -19,6 +24,7 @@ const instrumentSelect = document.getElementById('instrument-select');
 const refreshBtn = document.getElementById('refresh-btn');
 const seedBtn = document.getElementById('seed-btn');
 const ingestBtn = document.getElementById('ingest-btn');
+const snapshotBtn = document.getElementById('snapshot-btn');
 const autoRefreshToggle = document.getElementById('auto-refresh');
 
 function fmt(value) {
@@ -33,6 +39,23 @@ function fmtPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
+function fmtMoney(value) {
+  return Number(value || 0).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtSigned(value) {
+  const numeric = Number(value || 0);
+  const sign = numeric > 0 ? '+' : '';
+  return `${sign}${fmtMoney(numeric)}`;
+}
+
+function signClass(value) {
+  const numeric = Number(value || 0);
+  if (numeric > 0) return 'pos';
+  if (numeric < 0) return 'neg';
+  return '';
+}
+
 function renderTable(tableEl, headers, rows) {
   const head = `<thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`;
   const body = rows.length
@@ -42,15 +65,18 @@ function renderTable(tableEl, headers, rows) {
 }
 
 function renderSummary(summary) {
+  const portfolio = summary.portfolioSummary || {};
   const cards = [
-    ['총 주문', summary.totalOrders],
-    ['체결 주문', summary.filledOrders],
-    ['거절 주문', summary.rejectedOrders],
-    ['체결률', fmtPercent(summary.fillRatePercent)],
-    ['거절률', fmtPercent(summary.rejectionRatePercent)],
+    ['총 평가금액', fmtMoney(portfolio.totalMarketValue)],
+    ['미실현 손익', fmtSigned(portfolio.unrealizedPnl), signClass(portfolio.unrealizedPnl)],
+    ['총 손익', fmtSigned(portfolio.totalPnl), signClass(portfolio.totalPnl)],
+    ['수익률', fmtPercent(portfolio.returnRate), signClass(portfolio.returnRate)],
+    ['총 주문', fmt(summary.totalOrders)],
+    ['체결 주문', fmt(summary.filledOrders)],
+    ['거절 주문', fmt(summary.rejectedOrders)],
   ];
   summaryCards.innerHTML = cards
-    .map(([label, value]) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`)
+    .map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`)
     .join('');
 }
 
@@ -59,6 +85,100 @@ function renderStatusCounts(counts) {
   statusCards.innerHTML = statuses.length
     ? statuses.map((status) => `<div class="status"><div class="name">${status}</div><div class="count">${counts[status]}</div></div>`).join('')
     : '<div class="status"><div class="name">ORDERS</div><div class="count">0</div></div>';
+}
+
+function renderPortfolioSummary(summary) {
+  const cards = [
+    ['전략 실행', summary.strategyName || '-'],
+    ['스냅샷 시각', fmtTime(summary.snapshotAt)],
+    ['실현 손익(MVP)', fmtSigned(summary.realizedPnl), signClass(summary.realizedPnl)],
+    ['체결률', fmtPercent(summary.fillRatePercent)],
+    ['거절률', fmtPercent(summary.rejectionRatePercent)],
+  ];
+  portfolioKpis.innerHTML = cards
+    .map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`)
+    .join('');
+
+  portfolioLatest.innerHTML = `
+    <div class="latest-item"><span>전략</span><strong>${fmt(summary.strategyName)}</strong></div>
+    <div class="latest-item"><span>스냅샷 시각</span><strong>${fmtTime(summary.snapshotAt)}</strong></div>
+    <div class="latest-item"><span>총 평가금액</span><strong>${fmtMoney(summary.totalMarketValue)}</strong></div>
+    <div class="latest-item"><span>미실현 손익</span><strong class="${signClass(summary.unrealizedPnl)}">${fmtSigned(summary.unrealizedPnl)}</strong></div>
+    <div class="latest-item"><span>총 손익</span><strong class="${signClass(summary.totalPnl)}">${fmtSigned(summary.totalPnl)}</strong></div>
+    <div class="latest-item"><span>수익률</span><strong class="${signClass(summary.returnRate)}">${fmtPercent(summary.returnRate)}</strong></div>
+  `;
+}
+
+function renderPortfolioTrend(snapshots) {
+  if (!snapshots?.length) {
+    portfolioTrend.innerHTML = '';
+    portfolioTrendCaption.textContent = '스냅샷 이력이 있으면 추이를 표시합니다.';
+    return;
+  }
+  const ordered = [...snapshots].reverse();
+  const values = ordered.map((s) => Number(s.totalPnl || 0));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, 1);
+  const width = 640;
+  const height = 180;
+  const padding = { top: 16, right: 16, bottom: 26, left: 54 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const pointCount = values.length;
+
+  const toX = (idx) => padding.left + (idx / Math.max(pointCount - 1, 1)) * innerWidth;
+  const toY = (value) => padding.top + (1 - ((value - min) / range)) * innerHeight;
+
+  const points = values.map((value, idx) => `${toX(idx).toFixed(2)},${toY(value).toFixed(2)}`).join(' ');
+
+  let baseline = '';
+  if (min <= 0 && max >= 0) {
+    const zeroY = toY(0);
+    baseline = `
+      <line x1="${padding.left}" y1="${zeroY}" x2="${width - padding.right}" y2="${zeroY}" class="trend-baseline" />
+      <text x="${padding.left - 6}" y="${zeroY + 4}" text-anchor="end" class="trend-label">0</text>
+    `;
+  }
+
+  const minY = toY(min);
+  const maxY = toY(max);
+  const axisAndLabels = `
+    <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" class="trend-axis" />
+    <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" class="trend-axis" />
+    <line x1="${padding.left}" y1="${maxY}" x2="${width - padding.right}" y2="${maxY}" class="trend-grid" />
+    <line x1="${padding.left}" y1="${minY}" x2="${width - padding.right}" y2="${minY}" class="trend-grid" />
+    <text x="${padding.left - 6}" y="${maxY + 4}" text-anchor="end" class="trend-label">${fmtSigned(max)}</text>
+    <text x="${padding.left - 6}" y="${minY + 4}" text-anchor="end" class="trend-label">${fmtSigned(min)}</text>
+  `;
+
+  const tickStep = Math.max(1, Math.floor(pointCount / 6));
+  const ticks = values.map((_, idx) => idx)
+    .filter((idx) => idx % tickStep === 0 || idx === pointCount - 1)
+    .map((idx) => {
+      const x = toX(idx);
+      return `
+        <line x1="${x}" y1="${height - padding.bottom}" x2="${x}" y2="${height - padding.bottom + 4}" class="trend-axis" />
+        <text x="${x}" y="${height - 8}" text-anchor="middle" class="trend-label">#${idx + 1}</text>
+      `;
+    })
+    .join('');
+
+  const latestValue = values[pointCount - 1];
+  const latestX = toX(pointCount - 1);
+  const latestY = toY(latestValue);
+  const lineColor = latestValue >= 0 ? '#2f855a' : '#c53030';
+  const trendDirection = latestValue >= values[0] ? '개선' : '악화';
+
+  portfolioTrend.innerHTML = `
+    ${axisAndLabels}
+    ${baseline}
+    ${ticks}
+    <polyline fill="none" stroke="${lineColor}" stroke-width="3" points="${points}" />
+    <circle cx="${latestX}" cy="${latestY}" r="4" class="trend-latest-point" />
+    <text x="${latestX - 6}" y="${latestY - 8}" text-anchor="end" class="trend-latest-label">최신 ${fmtSigned(latestValue)}</text>
+  `;
+  portfolioTrendCaption.textContent = `최근 ${ordered.length}개 스냅샷 기준 총손익 추이 · 0선 ${min <= 0 && max >= 0 ? '포함' : '비포함'} · 최근 방향: ${trendDirection}`;
 }
 
 function renderEventFeed(data) {
@@ -108,14 +228,31 @@ function renderMarketDataStatus(status) {
 }
 
 function renderOverview(data) {
-  renderSummary(data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 });
+  const summary = data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 };
+  const portfolioSummary = data.portfolioSummary || {};
+  renderSummary({ ...summary, portfolioSummary });
+  renderPortfolioSummary({ ...portfolioSummary, fillRatePercent: summary.fillRatePercent, rejectionRatePercent: summary.rejectionRatePercent });
   renderStatusCounts(data.statusCounts || {});
   renderEventFeed(data);
 
   renderTable(
     ordersTable,
-    ['ID', 'ClientOrderId', 'Status', 'Side', 'Qty', 'Type', 'Instrument', 'Strategy', 'CreatedAt'],
-    (data.recentOrders || []).map((o) => [fmt(o.id), fmt(o.clientOrderId), fmt(o.status), fmt(o.side), fmt(o.quantity), fmt(o.orderType), fmt(o.instrumentSymbol), fmt(o.strategyName), fmtTime(o.createdAt)]),
+    ['ID', 'ClientOrderId', 'Status', 'Side', 'ReqQty', 'LimitPx', 'FilledQty', 'RemainQty', 'Type', 'Instrument', 'Strategy', 'CreatedAt', 'UpdatedAt'],
+    (data.recentOrders || []).map((o) => [
+      fmt(o.id),
+      fmt(o.clientOrderId),
+      fmt(o.status),
+      fmt(o.side),
+      fmt(o.requestedQuantity),
+      fmt(o.limitPrice),
+      fmt(o.filledQuantity),
+      fmt(o.remainingQuantity),
+      fmt(o.orderType),
+      fmt(o.instrumentSymbol),
+      fmt(o.strategyName),
+      fmtTime(o.createdAt),
+      fmtTime(o.updatedAt),
+    ]),
   );
 
   renderTable(
@@ -142,6 +279,23 @@ function renderOverview(data) {
     ['ID', 'Strategy', 'Instrument', 'NetQty', 'AvgPrice', 'UpdatedAt'],
     (data.positions || []).map((p) => [fmt(p.id), fmt(p.strategyName), fmt(p.instrumentSymbol), fmt(p.netQuantity), fmt(p.averagePrice), fmtTime(p.updatedAt)]),
   );
+
+  renderTable(
+    portfolioTable,
+    ['ID', 'StrategyRun', 'Strategy', 'SnapshotAt', 'MarketValue', 'UnrealizedPnL', 'RealizedPnL', 'TotalPnL', 'ReturnRate'],
+    (data.recentPortfolioSnapshots || []).map((p) => [
+      fmt(p.id),
+      fmt(p.strategyRunId),
+      fmt(p.strategyName),
+      fmtTime(p.snapshotAt),
+      fmtMoney(p.totalMarketValue),
+      fmtSigned(p.unrealizedPnl),
+      fmtSigned(p.realizedPnl),
+      fmtSigned(p.totalPnl),
+      fmtPercent(p.returnRate),
+    ]),
+  );
+  renderPortfolioTrend(data.recentPortfolioSnapshots || []);
 }
 
 async function loadOverview() {
@@ -217,6 +371,13 @@ async function ingestMarketData() {
   await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
 }
 
+async function refreshPortfolioSnapshots() {
+  const response = await fetch('/dashboard/portfolio-snapshots/refresh', { method: 'POST' });
+  const body = await response.json();
+  orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
+  await Promise.all([loadOverview(), loadMarketDataStatus()]);
+}
+
 async function submitOrder(evt) {
   evt.preventDefault();
 
@@ -227,6 +388,7 @@ async function submitOrder(evt) {
     side: formData.get('side'),
     quantity: String(formData.get('quantity')),
     orderType: formData.get('orderType'),
+    limitPrice: formData.get('limitPrice') ? String(formData.get('limitPrice')) : null,
     clientOrderId: String(formData.get('clientOrderId')),
   };
 
@@ -271,6 +433,12 @@ seedBtn.addEventListener('click', () => {
 ingestBtn.addEventListener('click', () => {
   ingestMarketData().catch((err) => {
     marketDataResult.textContent = `ingest error: ${err.message}`;
+  });
+});
+
+snapshotBtn.addEventListener('click', () => {
+  refreshPortfolioSnapshots().catch((err) => {
+    orderResult.textContent = `snapshot error: ${err.message}`;
   });
 });
 
