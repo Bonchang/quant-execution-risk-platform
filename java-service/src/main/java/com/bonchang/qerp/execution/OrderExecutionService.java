@@ -9,6 +9,7 @@ import com.bonchang.qerp.order.OrderType;
 import com.bonchang.qerp.order.OrderRepository;
 import com.bonchang.qerp.order.OrderSide;
 import com.bonchang.qerp.order.OrderStatus;
+import com.bonchang.qerp.portfolio.PortfolioSnapshotService;
 import com.bonchang.qerp.position.Position;
 import com.bonchang.qerp.position.PositionRepository;
 import java.math.BigDecimal;
@@ -31,6 +32,7 @@ public class OrderExecutionService {
     private final FillRepository fillRepository;
     private final PositionRepository positionRepository;
     private final OrderRepository orderRepository;
+    private final PortfolioSnapshotService portfolioSnapshotService;
 
     @Value("${execution.default-fill-price:1.000000}")
     private BigDecimal defaultFillPrice;
@@ -59,7 +61,9 @@ public class OrderExecutionService {
         }
         updateOrderStatusAfterExecution(order);
         order.setUpdatedAt(LocalDateTime.now());
-        return orderRepository.save(order);
+        Order savedOrder = orderRepository.save(order);
+        portfolioSnapshotService.createSnapshotForStrategyRun(savedOrder.getStrategyRun().getId());
+        return savedOrder;
     }
 
     private Order executeLimitOrder(Order order) {
@@ -79,7 +83,9 @@ public class OrderExecutionService {
         }
         updateOrderStatusAfterExecution(order);
         order.setUpdatedAt(LocalDateTime.now());
-        return orderRepository.save(order);
+        Order savedOrder = orderRepository.save(order);
+        portfolioSnapshotService.createSnapshotForStrategyRun(savedOrder.getStrategyRun().getId());
+        return savedOrder;
     }
 
     private List<BigDecimal> marketExecutionPlan(Order order) {

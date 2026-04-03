@@ -1,5 +1,6 @@
 package com.bonchang.qerp.dashboard;
 
+import com.bonchang.qerp.portfolio.PortfolioSnapshotService;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -18,16 +19,28 @@ public class DashboardService {
     private static final int DEFAULT_OPTION_LIMIT = 100;
 
     private final JdbcTemplate jdbcTemplate;
+    private final PortfolioSnapshotService portfolioSnapshotService;
 
     public DashboardOverviewResponse loadOverview(int limit) {
         Map<String, Long> statusCounts = loadStatusCounts();
         DashboardOverviewResponse.Summary summary = buildSummary(statusCounts);
+        DashboardOverviewResponse.PortfolioSummary portfolioSummary = loadLatestPortfolioSummary();
         List<DashboardOverviewResponse.RecentOrderItem> recentOrders = loadRecentOrders(limit);
         List<DashboardOverviewResponse.RiskCheckItem> recentRiskChecks = loadRecentRiskChecks(limit);
         List<DashboardOverviewResponse.FillItem> recentFills = loadRecentFills(limit);
         List<DashboardOverviewResponse.PositionItem> positions = loadPositions(limit);
+        List<DashboardOverviewResponse.PortfolioSnapshotItem> recentPortfolioSnapshots = loadRecentPortfolioSnapshots(limit);
 
-        return new DashboardOverviewResponse(summary, statusCounts, recentOrders, recentRiskChecks, recentFills, positions);
+        return new DashboardOverviewResponse(
+                summary,
+                portfolioSummary,
+                statusCounts,
+                recentOrders,
+                recentRiskChecks,
+                recentFills,
+                positions,
+                recentPortfolioSnapshots
+        );
     }
 
     public DashboardOptionsResponse loadOptions() {
@@ -126,6 +139,15 @@ public class DashboardService {
                 instrumentId,
                 "DEMO_AAPL",
                 "Demo instrument, market price, and strategy run created"
+        );
+    }
+
+    @Transactional
+    public DashboardPortfolioRefreshResponse refreshPortfolioSnapshots() {
+        int count = portfolioSnapshotService.refreshSnapshotsForAllStrategyRuns();
+        return new DashboardPortfolioRefreshResponse(
+                count,
+                "Portfolio snapshots refreshed for " + count + " strategy runs"
         );
     }
 
@@ -270,6 +292,81 @@ public class DashboardService {
                         rs.getBigDecimal("net_quantity"),
                         rs.getBigDecimal("average_price"),
                         rs.getTimestamp("updated_at").toLocalDateTime()
+                ),
+                limit
+        );
+    }
+
+    private DashboardOverviewResponse.PortfolioSummary loadLatestPortfolioSummary() {
+        List<DashboardOverviewResponse.PortfolioSummary> rows = jdbcTemplate.query(
+                """
+                SELECT ps.strategy_run_id,
+                       s.strategy_name,
+                       ps.snapshot_at,
+                       ps.total_market_value,
+                       ps.unrealized_pnl,
+                       ps.realized_pnl,
+                       ps.total_pnl,
+                       ps.return_rate
+                FROM portfolio_snapshot ps
+                JOIN strategy_run s ON s.id = ps.strategy_run_id
+                ORDER BY ps.snapshot_at DESC, ps.id DESC
+                LIMIT 1
+                """,
+                (rs, rowNum) -> new DashboardOverviewResponse.PortfolioSummary(
+                        rs.getLong("strategy_run_id"),
+                        rs.getString("strategy_name"),
+                        rs.getTimestamp("snapshot_at").toLocalDateTime(),
+                        rs.getBigDecimal("total_market_value"),
+                        rs.getBigDecimal("unrealized_pnl"),
+                        rs.getBigDecimal("realized_pnl"),
+                        rs.getBigDecimal("total_pnl"),
+                        rs.getBigDecimal("return_rate")
+                )
+        );
+
+        if (rows.isEmpty()) {
+            return new DashboardOverviewResponse.PortfolioSummary(
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+        }
+        return rows.get(0);
+    }
+
+    private List<DashboardOverviewResponse.PortfolioSnapshotItem> loadRecentPortfolioSnapshots(int limit) {
+        return jdbcTemplate.query(
+                """
+                SELECT ps.id,
+                       ps.strategy_run_id,
+                       s.strategy_name,
+                       ps.snapshot_at,
+                       ps.total_market_value,
+                       ps.unrealized_pnl,
+                       ps.realized_pnl,
+                       ps.total_pnl,
+                       ps.return_rate
+                FROM portfolio_snapshot ps
+                JOIN strategy_run s ON s.id = ps.strategy_run_id
+                ORDER BY ps.snapshot_at DESC, ps.id DESC
+                LIMIT ?
+                """,
+                (rs, rowNum) -> new DashboardOverviewResponse.PortfolioSnapshotItem(
+                        rs.getLong("id"),
+                        rs.getLong("strategy_run_id"),
+                        rs.getString("strategy_name"),
+                        rs.getTimestamp("snapshot_at").toLocalDateTime(),
+                        rs.getBigDecimal("total_market_value"),
+                        rs.getBigDecimal("unrealized_pnl"),
+                        rs.getBigDecimal("realized_pnl"),
+                        rs.getBigDecimal("total_pnl"),
+                        rs.getBigDecimal("return_rate")
                 ),
                 limit
         );

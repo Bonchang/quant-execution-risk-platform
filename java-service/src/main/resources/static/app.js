@@ -11,6 +11,8 @@ const ordersTable = document.getElementById('orders-table');
 const riskTable = document.getElementById('risk-table');
 const fillsTable = document.getElementById('fills-table');
 const positionsTable = document.getElementById('positions-table');
+const portfolioKpis = document.getElementById('portfolio-kpis');
+const portfolioTable = document.getElementById('portfolio-table');
 const eventFeed = document.getElementById('event-feed');
 const orderResult = document.getElementById('order-result');
 const orderForm = document.getElementById('order-form');
@@ -19,6 +21,7 @@ const instrumentSelect = document.getElementById('instrument-select');
 const refreshBtn = document.getElementById('refresh-btn');
 const seedBtn = document.getElementById('seed-btn');
 const ingestBtn = document.getElementById('ingest-btn');
+const snapshotBtn = document.getElementById('snapshot-btn');
 const autoRefreshToggle = document.getElementById('auto-refresh');
 
 function fmt(value) {
@@ -31,6 +34,12 @@ function fmtTime(value) {
 
 function fmtPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function fmtSigned(value) {
+  const numeric = Number(value || 0);
+  const sign = numeric > 0 ? '+' : '';
+  return `${sign}${numeric.toFixed(6)}`;
 }
 
 function renderTable(tableEl, headers, rows) {
@@ -59,6 +68,20 @@ function renderStatusCounts(counts) {
   statusCards.innerHTML = statuses.length
     ? statuses.map((status) => `<div class="status"><div class="name">${status}</div><div class="count">${counts[status]}</div></div>`).join('')
     : '<div class="status"><div class="name">ORDERS</div><div class="count">0</div></div>';
+}
+
+function renderPortfolioSummary(summary) {
+  const cards = [
+    ['전략', summary.strategyName || '-'],
+    ['스냅샷 시각', fmtTime(summary.snapshotAt)],
+    ['총 평가금액', fmt(summary.totalMarketValue)],
+    ['미실현 PnL', fmtSigned(summary.unrealizedPnl)],
+    ['총 PnL', fmtSigned(summary.totalPnl)],
+    ['수익률', fmtPercent(summary.returnRate)],
+  ];
+  portfolioKpis.innerHTML = cards
+    .map(([label, value]) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`)
+    .join('');
 }
 
 function renderEventFeed(data) {
@@ -109,6 +132,7 @@ function renderMarketDataStatus(status) {
 
 function renderOverview(data) {
   renderSummary(data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 });
+  renderPortfolioSummary(data.portfolioSummary || {});
   renderStatusCounts(data.statusCounts || {});
   renderEventFeed(data);
 
@@ -155,6 +179,22 @@ function renderOverview(data) {
     positionsTable,
     ['ID', 'Strategy', 'Instrument', 'NetQty', 'AvgPrice', 'UpdatedAt'],
     (data.positions || []).map((p) => [fmt(p.id), fmt(p.strategyName), fmt(p.instrumentSymbol), fmt(p.netQuantity), fmt(p.averagePrice), fmtTime(p.updatedAt)]),
+  );
+
+  renderTable(
+    portfolioTable,
+    ['ID', 'StrategyRun', 'Strategy', 'SnapshotAt', 'MarketValue', 'UnrealizedPnL', 'RealizedPnL', 'TotalPnL', 'ReturnRate'],
+    (data.recentPortfolioSnapshots || []).map((p) => [
+      fmt(p.id),
+      fmt(p.strategyRunId),
+      fmt(p.strategyName),
+      fmtTime(p.snapshotAt),
+      fmt(p.totalMarketValue),
+      fmtSigned(p.unrealizedPnl),
+      fmtSigned(p.realizedPnl),
+      fmtSigned(p.totalPnl),
+      fmtPercent(p.returnRate),
+    ]),
   );
 }
 
@@ -231,6 +271,13 @@ async function ingestMarketData() {
   await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
 }
 
+async function refreshPortfolioSnapshots() {
+  const response = await fetch('/dashboard/portfolio-snapshots/refresh', { method: 'POST' });
+  const body = await response.json();
+  orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
+  await Promise.all([loadOverview(), loadMarketDataStatus()]);
+}
+
 async function submitOrder(evt) {
   evt.preventDefault();
 
@@ -286,6 +333,12 @@ seedBtn.addEventListener('click', () => {
 ingestBtn.addEventListener('click', () => {
   ingestMarketData().catch((err) => {
     marketDataResult.textContent = `ingest error: ${err.message}`;
+  });
+});
+
+snapshotBtn.addEventListener('click', () => {
+  refreshPortfolioSnapshots().catch((err) => {
+    orderResult.textContent = `snapshot error: ${err.message}`;
   });
 });
 
