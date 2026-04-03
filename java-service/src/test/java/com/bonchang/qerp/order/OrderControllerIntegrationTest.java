@@ -420,6 +420,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("1050.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("0.000000"))
                 .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("0.000000"))
                 .andExpect(jsonPath("$.recentPortfolioSnapshots[0].strategyRunId").value(strategyRunId));
     }
@@ -453,8 +454,54 @@ class OrderControllerIntegrationTest {
         mockMvc.perform(get("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("1200.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("0.000000"))
                 .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("150.000000"))
                 .andExpect(jsonPath("$.portfolioSummary.totalPnl").value("150.000000"));
+    }
+
+    @Test
+    void createOrder_sellFill_generatesRealizedPnlByAverageCostBeforeSell() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+
+        String buyPayload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "realized-buy-001"
+        ));
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(buyPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
+
+        insertMarketPriceTomorrow(instrumentId, "120.000000");
+
+        String sellPayload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "4.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "110.000000",
+                "clientOrderId", "realized-sell-001"
+        ));
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(sellPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
+
+        mockMvc.perform(get("/dashboard/overview?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("80.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("120.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value("200.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("720.000000"));
     }
 
     private Long insertStrategyRun() {
