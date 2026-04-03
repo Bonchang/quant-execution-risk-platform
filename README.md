@@ -150,12 +150,12 @@ flowchart LR
   - `total_market_value`: 순수량 * 최신가격 합계
   - `unrealized_pnl`: 순수량 * (최신가격 - 평균단가) 합계
   - `realized_pnl`: SELL fill에 대해 `qty * (sellPrice - 매도 직전 평균단가)` 누적
-  - `realized_pnl`: 현재 MVP는 `0`으로 저장
   - `total_pnl`: `unrealized_pnl + realized_pnl`
   - `return_rate`: `total_pnl / total_cost_basis * 100` (cost basis 0이면 0)
 - 생성 방식
   - 체결 발생 시 자동 생성
   - `POST /dashboard/portfolio-snapshots/refresh`로 수동 일괄 갱신 가능
+  - 계산 로직은 `RealizedPnlCalculator` 컴포넌트로 분리해 유지보수/테스트를 단순화
 
 ## 10. Web Progress Dashboard
 
