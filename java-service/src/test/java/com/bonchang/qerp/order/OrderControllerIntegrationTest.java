@@ -537,7 +537,7 @@ class OrderControllerIntegrationTest {
                 VALUES (?, CURRENT_DATE, 100.000000, 110.000000, 95.000000, ?, 1000)
                 """,
                 instrumentId,
-                closePrice
+                new java.math.BigDecimal(closePrice)
         );
     }
 
@@ -548,7 +548,7 @@ class OrderControllerIntegrationTest {
                 VALUES (?, CURRENT_DATE + 1, 100.000000, 125.000000, 95.000000, ?, 1000)
                 """,
                 instrumentId,
-                closePrice
+                new java.math.BigDecimal(closePrice)
         );
     }
 }
