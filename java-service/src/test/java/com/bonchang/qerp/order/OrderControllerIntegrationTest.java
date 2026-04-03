@@ -51,6 +51,7 @@ class OrderControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute("DELETE FROM risk_check_result");
+        jdbcTemplate.execute("DELETE FROM portfolio_snapshot");
         jdbcTemplate.execute("DELETE FROM fill");
         jdbcTemplate.execute("DELETE FROM orders");
         jdbcTemplate.execute("DELETE FROM position");
@@ -82,6 +83,8 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.instrumentId").value(instrumentId))
                 .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("10.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"))
                 .andExpect(jsonPath("$.clientOrderId").value("client-001"));
 
         Integer fillCount = jdbcTemplate.queryForObject(
@@ -92,9 +95,52 @@ class OrderControllerIntegrationTest {
                 "SELECT COUNT(*) FROM position",
                 Integer.class
         );
+        Integer snapshotCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM portfolio_snapshot",
+                Integer.class
+        );
 
-        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
         org.assertj.core.api.Assertions.assertThat(positionCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(snapshotCount).isEqualTo(1);
+    }
+
+    @Test
+    void createOrder_marketOrder_persistsMultipleFillsAndUpdatesPositionCumulatively() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId);
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "11.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "market-multi-fill-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("11.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'market-multi-fill-001')",
+                Integer.class
+        );
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
+
+        String netQuantity = jdbcTemplate.queryForObject(
+                "SELECT TO_CHAR(net_quantity, 'FM9999999990.000000') FROM position WHERE strategy_run_id = ? AND instrument_id = ?",
+                String.class,
+                strategyRunId,
+                instrumentId
+        );
+        org.assertj.core.api.Assertions.assertThat(netQuantity).isEqualTo("11.000000");
     }
 
     @Test
@@ -149,6 +195,163 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    void createOrder_limitBuy_fillsWhenMarketPriceAtOrBelowLimit() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "105.000000",
+                "clientOrderId", "limit-partial-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.limitPrice").value("105.000000"))
+                .andExpect(jsonPath("$.filledQuantity").value("10.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'limit-partial-001')",
+                Integer.class
+        );
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
+    }
+
+    @Test
+    void createOrder_limitBuy_staysApprovedWhenMarketPriceAboveLimit() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "110.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "100.000000",
+                "clientOrderId", "limit-buy-open-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.filledQuantity").value(0))
+                .andExpect(jsonPath("$.remainingQuantity").value("10.000000"));
+
+        Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
+        Integer positionCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM position", Integer.class);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
+        org.assertj.core.api.Assertions.assertThat(positionCount).isZero();
+    }
+
+    @Test
+    void createOrder_limitSell_fillsWhenMarketPriceAtOrAboveLimit() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "7.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "100.000000",
+                "clientOrderId", "limit-sell-fill-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value("7.000000"))
+                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+    }
+
+    @Test
+    void createOrder_limitSell_staysApprovedWhenMarketPriceBelowLimit() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "95.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "7.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "100.000000",
+                "clientOrderId", "limit-sell-open-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.filledQuantity").value(0))
+                .andExpect(jsonPath("$.remainingQuantity").value("7.000000"));
+    }
+
+    @Test
+    void createOrder_limitOrder_withoutLimitPrice_badRequest() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "LIMIT",
+                "clientOrderId", "limit-invalid-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("limitPrice is required for LIMIT order"));
+    }
+
+    @Test
+    void createOrder_marketOrder_withLimitPrice_badRequest() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "MARKET",
+                "limitPrice", "100.000000",
+                "clientOrderId", "market-invalid-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("limitPrice must be null for MARKET order"));
+    }
+
+    @Test
     void createOrder_missingStrategyRun_badRequest() throws Exception {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId);
@@ -193,6 +396,114 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.lastResult.failures[0]").value("market-data.api-key is not configured"));
     }
 
+    @Test
+    void dashboardOverview_includesLatestPortfolioSummaryAndSnapshots() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "portfolio-overview-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/dashboard/overview?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.portfolioSummary.strategyRunId").value(strategyRunId))
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("1050.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("0.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("0.000000"))
+                .andExpect(jsonPath("$.recentPortfolioSnapshots[0].strategyRunId").value(strategyRunId));
+    }
+
+    @Test
+    void refreshPortfolioSnapshots_usesLatestMarketPriceForUnrealizedPnl() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "portfolio-refresh-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated());
+
+        insertMarketPriceTomorrow(instrumentId, "120.000000");
+
+        mockMvc.perform(post("/dashboard/portfolio-snapshots/refresh"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.strategyRunCount").value(1));
+
+        mockMvc.perform(get("/dashboard/overview?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("1200.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("0.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("150.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value("150.000000"));
+    }
+
+    @Test
+    void createOrder_sellFill_generatesRealizedPnlByAverageCostBeforeSell() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+
+        String buyPayload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "BUY",
+                "quantity", "10.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "realized-buy-001"
+        ));
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(buyPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
+
+        insertMarketPriceTomorrow(instrumentId, "120.000000");
+
+        String sellPayload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "4.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "110.000000",
+                "clientOrderId", "realized-sell-001"
+        ));
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(sellPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
+
+        mockMvc.perform(get("/dashboard/overview?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("80.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("120.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value("200.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("720.000000"));
+    }
+
     private Long insertStrategyRun() {
         return jdbcTemplate.queryForObject(
                 """
@@ -216,12 +527,28 @@ class OrderControllerIntegrationTest {
     }
 
     private void insertMarketPrice(Long instrumentId) {
+        insertMarketPrice(instrumentId, "105.000000");
+    }
+
+    private void insertMarketPrice(Long instrumentId, String closePrice) {
         jdbcTemplate.update(
                 """
                 INSERT INTO market_price(instrument_id, price_date, open_price, high_price, low_price, close_price, volume)
-                VALUES (?, CURRENT_DATE, 100.000000, 110.000000, 95.000000, 105.000000, 1000)
+                VALUES (?, CURRENT_DATE, 100.000000, 110.000000, 95.000000, ?, 1000)
                 """,
-                instrumentId
+                instrumentId,
+                new java.math.BigDecimal(closePrice)
+        );
+    }
+
+    private void insertMarketPriceTomorrow(Long instrumentId, String closePrice) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO market_price(instrument_id, price_date, open_price, high_price, low_price, close_price, volume)
+                VALUES (?, CURRENT_DATE + 1, 100.000000, 125.000000, 95.000000, ?, 1000)
+                """,
+                instrumentId,
+                new java.math.BigDecimal(closePrice)
         );
     }
 }
