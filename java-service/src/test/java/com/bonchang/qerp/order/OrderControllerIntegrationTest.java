@@ -83,8 +83,8 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.instrumentId").value(instrumentId))
                 .andExpect(jsonPath("$.status").value("FILLED"))
-                .andExpect(jsonPath("$.filledQuantity").value("10.000000"))
-                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"))
+                .andExpect(jsonPath("$.filledQuantity").value(10.0))
+                .andExpect(jsonPath("$.remainingQuantity").value(0.0))
                 .andExpect(jsonPath("$.clientOrderId").value("client-001"));
 
         Integer fillCount = jdbcTemplate.queryForObject(
@@ -125,8 +125,8 @@ class OrderControllerIntegrationTest {
                         .content(payload))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("FILLED"))
-                .andExpect(jsonPath("$.filledQuantity").value("11.000000"))
-                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+                .andExpect(jsonPath("$.filledQuantity").value(11.0))
+                .andExpect(jsonPath("$.remainingQuantity").value(0.0));
 
         Integer fillCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'market-multi-fill-001')",
@@ -215,9 +215,9 @@ class OrderControllerIntegrationTest {
                         .content(payload))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("FILLED"))
-                .andExpect(jsonPath("$.limitPrice").value("105.000000"))
-                .andExpect(jsonPath("$.filledQuantity").value("10.000000"))
-                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+                .andExpect(jsonPath("$.limitPrice").value(105.0))
+                .andExpect(jsonPath("$.filledQuantity").value(10.0))
+                .andExpect(jsonPath("$.remainingQuantity").value(0.0));
 
         Integer fillCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'limit-partial-001')",
@@ -248,7 +248,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("APPROVED"))
                 .andExpect(jsonPath("$.filledQuantity").value(0))
-                .andExpect(jsonPath("$.remainingQuantity").value("10.000000"));
+                .andExpect(jsonPath("$.remainingQuantity").value(10.0));
 
         Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
         Integer positionCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM position", Integer.class);
@@ -277,8 +277,8 @@ class OrderControllerIntegrationTest {
                         .content(payload))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("FILLED"))
-                .andExpect(jsonPath("$.filledQuantity").value("7.000000"))
-                .andExpect(jsonPath("$.remainingQuantity").value("0.000000"));
+                .andExpect(jsonPath("$.filledQuantity").value(7.0))
+                .andExpect(jsonPath("$.remainingQuantity").value(0.0));
     }
 
     @Test
@@ -303,7 +303,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("APPROVED"))
                 .andExpect(jsonPath("$.filledQuantity").value(0))
-                .andExpect(jsonPath("$.remainingQuantity").value("7.000000"));
+                .andExpect(jsonPath("$.remainingQuantity").value(7.0));
     }
 
     @Test
@@ -419,9 +419,9 @@ class OrderControllerIntegrationTest {
         mockMvc.perform(get("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.strategyRunId").value(strategyRunId))
-                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("1050.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("0.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("0.000000"))
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(1050.0))
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value(0.0))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value(0.0))
                 .andExpect(jsonPath("$.recentPortfolioSnapshots[0].strategyRunId").value(strategyRunId));
     }
 
@@ -453,10 +453,10 @@ class OrderControllerIntegrationTest {
 
         mockMvc.perform(get("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("1200.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("0.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("150.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value("150.000000"));
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(1200.0))
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value(0.0))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value(150.0))
+                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value(150.0));
     }
 
     @Test
@@ -498,10 +498,10 @@ class OrderControllerIntegrationTest {
 
         mockMvc.perform(get("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value("80.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value("120.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value("200.000000"))
-                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value("720.000000"));
+                .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value(80.0))
+                .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value(120.0))
+                .andExpect(jsonPath("$.portfolioSummary.totalPnl").value(200.0))
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(720.0));
     }
 
     private Long insertStrategyRun() {
