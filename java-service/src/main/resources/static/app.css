@@ -117,7 +117,12 @@ button {
 }
 
 .kpis {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.portfolio-kpis {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 10px;
 }
 
 .portfolio-kpis {
@@ -137,6 +142,12 @@ button {
   margin: 0 0 12px;
 }
 
+.section-help {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .kpi {
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   border: 1px solid var(--line);
@@ -153,6 +164,14 @@ button {
   margin-top: 4px;
   font-size: 1.5rem;
   font-weight: 800;
+}
+
+.kpi .value.pos {
+  color: var(--green);
+}
+
+.kpi .value.neg {
+  color: var(--red);
 }
 
 .order-grid {
@@ -250,6 +269,57 @@ button {
   margin-bottom: 6px;
 }
 
+.portfolio-latest {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.latest-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.latest-item span {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.latest-item strong {
+  display: block;
+  margin-top: 2px;
+}
+
+.latest-item strong.pos {
+  color: var(--green);
+}
+
+.latest-item strong.neg {
+  color: var(--red);
+}
+
+.trend-wrap {
+  margin-bottom: 12px;
+}
+
+.trend-chart {
+  width: 100%;
+  height: 180px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.trend-caption {
+  margin: 8px 2px 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -294,7 +364,7 @@ th {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .portfolio-kpis {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

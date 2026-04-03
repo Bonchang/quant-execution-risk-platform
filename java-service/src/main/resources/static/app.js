@@ -13,6 +13,9 @@ const fillsTable = document.getElementById('fills-table');
 const positionsTable = document.getElementById('positions-table');
 const portfolioKpis = document.getElementById('portfolio-kpis');
 const portfolioTable = document.getElementById('portfolio-table');
+const portfolioLatest = document.getElementById('portfolio-latest');
+const portfolioTrend = document.getElementById('portfolio-trend');
+const portfolioTrendCaption = document.getElementById('portfolio-trend-caption');
 const eventFeed = document.getElementById('event-feed');
 const orderResult = document.getElementById('order-result');
 const orderForm = document.getElementById('order-form');
@@ -36,10 +39,21 @@ function fmtPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
+function fmtMoney(value) {
+  return Number(value || 0).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function fmtSigned(value) {
   const numeric = Number(value || 0);
   const sign = numeric > 0 ? '+' : '';
-  return `${sign}${numeric.toFixed(6)}`;
+  return `${sign}${fmtMoney(numeric)}`;
+}
+
+function signClass(value) {
+  const numeric = Number(value || 0);
+  if (numeric > 0) return 'pos';
+  if (numeric < 0) return 'neg';
+  return '';
 }
 
 function renderTable(tableEl, headers, rows) {
@@ -51,15 +65,18 @@ function renderTable(tableEl, headers, rows) {
 }
 
 function renderSummary(summary) {
+  const portfolio = summary.portfolioSummary || {};
   const cards = [
-    ['총 주문', summary.totalOrders],
-    ['체결 주문', summary.filledOrders],
-    ['거절 주문', summary.rejectedOrders],
-    ['체결률', fmtPercent(summary.fillRatePercent)],
-    ['거절률', fmtPercent(summary.rejectionRatePercent)],
+    ['총 평가금액', fmtMoney(portfolio.totalMarketValue)],
+    ['미실현 손익', fmtSigned(portfolio.unrealizedPnl), signClass(portfolio.unrealizedPnl)],
+    ['총 손익', fmtSigned(portfolio.totalPnl), signClass(portfolio.totalPnl)],
+    ['수익률', fmtPercent(portfolio.returnRate), signClass(portfolio.returnRate)],
+    ['총 주문', fmt(summary.totalOrders)],
+    ['체결 주문', fmt(summary.filledOrders)],
+    ['거절 주문', fmt(summary.rejectedOrders)],
   ];
   summaryCards.innerHTML = cards
-    .map(([label, value]) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`)
+    .map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`)
     .join('');
 }
 
@@ -72,16 +89,49 @@ function renderStatusCounts(counts) {
 
 function renderPortfolioSummary(summary) {
   const cards = [
-    ['전략', summary.strategyName || '-'],
+    ['전략 실행', summary.strategyName || '-'],
     ['스냅샷 시각', fmtTime(summary.snapshotAt)],
-    ['총 평가금액', fmt(summary.totalMarketValue)],
-    ['미실현 PnL', fmtSigned(summary.unrealizedPnl)],
-    ['총 PnL', fmtSigned(summary.totalPnl)],
-    ['수익률', fmtPercent(summary.returnRate)],
+    ['실현 손익(MVP)', fmtSigned(summary.realizedPnl), signClass(summary.realizedPnl)],
+    ['체결률', fmtPercent(summary.fillRatePercent)],
+    ['거절률', fmtPercent(summary.rejectionRatePercent)],
   ];
   portfolioKpis.innerHTML = cards
-    .map(([label, value]) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`)
+    .map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`)
     .join('');
+
+  portfolioLatest.innerHTML = `
+    <div class="latest-item"><span>전략</span><strong>${fmt(summary.strategyName)}</strong></div>
+    <div class="latest-item"><span>스냅샷 시각</span><strong>${fmtTime(summary.snapshotAt)}</strong></div>
+    <div class="latest-item"><span>총 평가금액</span><strong>${fmtMoney(summary.totalMarketValue)}</strong></div>
+    <div class="latest-item"><span>미실현 손익</span><strong class="${signClass(summary.unrealizedPnl)}">${fmtSigned(summary.unrealizedPnl)}</strong></div>
+    <div class="latest-item"><span>총 손익</span><strong class="${signClass(summary.totalPnl)}">${fmtSigned(summary.totalPnl)}</strong></div>
+    <div class="latest-item"><span>수익률</span><strong class="${signClass(summary.returnRate)}">${fmtPercent(summary.returnRate)}</strong></div>
+  `;
+}
+
+function renderPortfolioTrend(snapshots) {
+  if (!snapshots?.length) {
+    portfolioTrend.innerHTML = '';
+    portfolioTrendCaption.textContent = '스냅샷 이력이 있으면 추이를 표시합니다.';
+    return;
+  }
+  const ordered = [...snapshots].reverse();
+  const values = ordered.map((s) => Number(s.totalPnl || 0));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, 1);
+  const width = 640;
+  const height = 180;
+
+  const points = values.map((value, idx) => {
+    const x = (idx / Math.max(values.length - 1, 1)) * width;
+    const y = height - ((value - min) / range) * height;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+
+  const lineColor = values[values.length - 1] >= 0 ? '#2f855a' : '#c53030';
+  portfolioTrend.innerHTML = `<polyline fill="none" stroke="${lineColor}" stroke-width="3" points="${points}" />`;
+  portfolioTrendCaption.textContent = `최근 ${ordered.length}개 스냅샷 기준 총손익 추이 (최신: ${fmtSigned(values[values.length - 1])})`;
 }
 
 function renderEventFeed(data) {
@@ -131,8 +181,10 @@ function renderMarketDataStatus(status) {
 }
 
 function renderOverview(data) {
-  renderSummary(data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 });
-  renderPortfolioSummary(data.portfolioSummary || {});
+  const summary = data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 };
+  const portfolioSummary = data.portfolioSummary || {};
+  renderSummary({ ...summary, portfolioSummary });
+  renderPortfolioSummary({ ...portfolioSummary, fillRatePercent: summary.fillRatePercent, rejectionRatePercent: summary.rejectionRatePercent });
   renderStatusCounts(data.statusCounts || {});
   renderEventFeed(data);
 
@@ -189,13 +241,14 @@ function renderOverview(data) {
       fmt(p.strategyRunId),
       fmt(p.strategyName),
       fmtTime(p.snapshotAt),
-      fmt(p.totalMarketValue),
+      fmtMoney(p.totalMarketValue),
       fmtSigned(p.unrealizedPnl),
       fmtSigned(p.realizedPnl),
       fmtSigned(p.totalPnl),
       fmtPercent(p.returnRate),
     ]),
   );
+  renderPortfolioTrend(data.recentPortfolioSnapshots || []);
 }
 
 async function loadOverview() {
