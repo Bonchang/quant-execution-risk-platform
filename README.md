@@ -150,6 +150,7 @@ flowchart LR
   - `total_market_value`: 순수량 * 최신가격 합계
   - `unrealized_pnl`: 순수량 * (최신가격 - 평균단가) 합계
   - `realized_pnl`: SELL fill에 대해 `qty * (sellPrice - 매도 직전 평균단가)` 누적
+  - `realized_pnl`: 현재 MVP는 `0`으로 저장
   - `total_pnl`: `unrealized_pnl + realized_pnl`
   - `return_rate`: `total_pnl / total_cost_basis * 100` (cost basis 0이면 0)
 - 생성 방식

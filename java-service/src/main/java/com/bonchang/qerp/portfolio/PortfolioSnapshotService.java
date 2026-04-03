@@ -5,6 +5,8 @@ import com.bonchang.qerp.fill.FillRepository;
 import com.bonchang.qerp.market.MarketPrice;
 import com.bonchang.qerp.market.MarketPriceRepository;
 import com.bonchang.qerp.order.OrderSide;
+import com.bonchang.qerp.market.MarketPrice;
+import com.bonchang.qerp.market.MarketPriceRepository;
 import com.bonchang.qerp.position.Position;
 import com.bonchang.qerp.position.PositionRepository;
 import com.bonchang.qerp.strategyrun.StrategyRun;
@@ -17,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -60,6 +63,7 @@ public class PortfolioSnapshotService {
         }
 
         BigDecimal realizedPnl = calculateRealizedPnl(strategyRunId);
+        BigDecimal realizedPnl = ZERO;
         BigDecimal totalPnl = unrealizedPnl.add(realizedPnl).setScale(6, RoundingMode.HALF_UP);
         BigDecimal returnRate = ZERO;
         if (totalCostBasis.compareTo(BigDecimal.ZERO) != 0) {
