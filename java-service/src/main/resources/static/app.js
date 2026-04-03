@@ -122,16 +122,63 @@ function renderPortfolioTrend(snapshots) {
   const range = Math.max(max - min, 1);
   const width = 640;
   const height = 180;
+  const padding = { top: 16, right: 16, bottom: 26, left: 54 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const pointCount = values.length;
 
-  const points = values.map((value, idx) => {
-    const x = (idx / Math.max(values.length - 1, 1)) * width;
-    const y = height - ((value - min) / range) * height;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(' ');
+  const toX = (idx) => padding.left + (idx / Math.max(pointCount - 1, 1)) * innerWidth;
+  const toY = (value) => padding.top + (1 - ((value - min) / range)) * innerHeight;
 
-  const lineColor = values[values.length - 1] >= 0 ? '#2f855a' : '#c53030';
-  portfolioTrend.innerHTML = `<polyline fill="none" stroke="${lineColor}" stroke-width="3" points="${points}" />`;
-  portfolioTrendCaption.textContent = `최근 ${ordered.length}개 스냅샷 기준 총손익 추이 (최신: ${fmtSigned(values[values.length - 1])})`;
+  const points = values.map((value, idx) => `${toX(idx).toFixed(2)},${toY(value).toFixed(2)}`).join(' ');
+
+  let baseline = '';
+  if (min <= 0 && max >= 0) {
+    const zeroY = toY(0);
+    baseline = `
+      <line x1="${padding.left}" y1="${zeroY}" x2="${width - padding.right}" y2="${zeroY}" class="trend-baseline" />
+      <text x="${padding.left - 6}" y="${zeroY + 4}" text-anchor="end" class="trend-label">0</text>
+    `;
+  }
+
+  const minY = toY(min);
+  const maxY = toY(max);
+  const axisAndLabels = `
+    <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" class="trend-axis" />
+    <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" class="trend-axis" />
+    <line x1="${padding.left}" y1="${maxY}" x2="${width - padding.right}" y2="${maxY}" class="trend-grid" />
+    <line x1="${padding.left}" y1="${minY}" x2="${width - padding.right}" y2="${minY}" class="trend-grid" />
+    <text x="${padding.left - 6}" y="${maxY + 4}" text-anchor="end" class="trend-label">${fmtSigned(max)}</text>
+    <text x="${padding.left - 6}" y="${minY + 4}" text-anchor="end" class="trend-label">${fmtSigned(min)}</text>
+  `;
+
+  const tickStep = Math.max(1, Math.floor(pointCount / 6));
+  const ticks = values.map((_, idx) => idx)
+    .filter((idx) => idx % tickStep === 0 || idx === pointCount - 1)
+    .map((idx) => {
+      const x = toX(idx);
+      return `
+        <line x1="${x}" y1="${height - padding.bottom}" x2="${x}" y2="${height - padding.bottom + 4}" class="trend-axis" />
+        <text x="${x}" y="${height - 8}" text-anchor="middle" class="trend-label">#${idx + 1}</text>
+      `;
+    })
+    .join('');
+
+  const latestValue = values[pointCount - 1];
+  const latestX = toX(pointCount - 1);
+  const latestY = toY(latestValue);
+  const lineColor = latestValue >= 0 ? '#2f855a' : '#c53030';
+  const trendDirection = latestValue >= values[0] ? '개선' : '악화';
+
+  portfolioTrend.innerHTML = `
+    ${axisAndLabels}
+    ${baseline}
+    ${ticks}
+    <polyline fill="none" stroke="${lineColor}" stroke-width="3" points="${points}" />
+    <circle cx="${latestX}" cy="${latestY}" r="4" class="trend-latest-point" />
+    <text x="${latestX - 6}" y="${latestY - 8}" text-anchor="end" class="trend-latest-label">최신 ${fmtSigned(latestValue)}</text>
+  `;
+  portfolioTrendCaption.textContent = `최근 ${ordered.length}개 스냅샷 기준 총손익 추이 · 0선 ${min <= 0 && max >= 0 ? '포함' : '비포함'} · 최근 방향: ${trendDirection}`;
 }
 
 function renderEventFeed(data) {
