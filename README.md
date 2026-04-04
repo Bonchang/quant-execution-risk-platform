@@ -412,18 +412,6 @@ python3 -m qerp_research.run_backtest --config configs/demo_strategy.yaml --arti
 
 상세 절차는 [Render + Supabase Free Deployment](docs/deploy/render-supabase-free.md)를 따른다.
 
-## GitHub Releases 필요 여부
-
-로컬 실행 목적이라면 GitHub Releases에 별도 파일을 올릴 필요는 없다.
-
-이 저장소는 아래 방식으로 충분하다.
-
-- 소스코드 clone
-- `docker compose up -d --build`
-- 브라우저에서 `http://localhost:8080` 접속
-
-즉, 현재 기준 공식 배포물은 `GitHub repo + README 실행 방법 + compose.yml` 조합으로 본다.
-
 ## 테스트와 운영성
 
 - Java 통합 테스트
