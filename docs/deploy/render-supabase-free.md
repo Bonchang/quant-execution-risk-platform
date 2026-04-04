@@ -14,6 +14,9 @@ QERP 1차 공개 배포 기준은 `Render Free Web Service + Supabase Free Postg
 
 이 모드에서는 실시간 시세 자동 수집보다 공개 데모 안정성을 우선한다.
 
+공개 메인 경험은 `게스트 세션 기반 paper trading`이다.  
+운영자 계정 기반 `/auth/token`과 `/dashboard/*`는 내부 점검용으로만 유지한다.
+
 ## 2. Supabase 준비
 
 1. Supabase에서 새 프로젝트를 만든다.
@@ -54,16 +57,18 @@ QERP 1차 공개 배포 기준은 `Render Free Web Service + Supabase Free Postg
 
 - `GET /`
 - `GET /discover`
-- `GET /stocks/DEMO_AAPL`
+- `GET /stocks/AAPL`
 - `GET /app/home`
-- `POST /auth/token`
-- 인증 후 `GET /app/portfolio`
-- 인증 후 `GET /app/orders`
+- `POST /app/auth/guest`
+- 게스트 토큰으로 `GET /app/me`
+- 게스트 토큰으로 `GET /app/portfolio`
+- 게스트 토큰으로 `GET /app/orders`
+- 게스트 토큰으로 `POST /app/orders`
 
-관리자 토큰으로 `POST /dashboard/seed-demo`를 호출한 뒤 다시 아래를 확인한다.
+내부 운영 확인이 필요하면 로컬/비공개 환경에서만 관리자 토큰으로 `POST /dashboard/seed-demo`를 호출한 뒤 아래를 확인한다.
 
 - `GET /app/home`
-- `GET /app/stocks/DEMO_AAPL`
+- `GET /app/stocks/AAPL`
 - `GET /app/portfolio`
 - `GET /market-data/quotes`
 
