@@ -25,7 +25,7 @@ export function PortfolioPage() {
   });
 
   if (!token) {
-    return <InlineAuthPanel title="내 자산 보기" subtitle="viewer 이상 계정으로 로그인하면 자산 스냅샷과 보유 종목을 볼 수 있습니다." />;
+    return <InlineAuthPanel title="내 자산 보기" subtitle="게스트 세션을 시작하면 내 paper account와 자산 스냅샷이 바로 생성됩니다." />;
   }
 
   if (portfolioQuery.isLoading) {

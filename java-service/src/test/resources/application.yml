@@ -1,0 +1,17 @@
+security:
+  jwt:
+    secret: qerp-test-secret-key-qerp-test-secret-key
+qerp:
+  ops-auth:
+    users:
+      - username: admin
+        password: admin123!
+        role: ADMIN
+      - username: trader
+        password: trader123!
+        role: TRADER
+      - username: viewer
+        password: viewer123!
+        role: VIEWER
+market-data:
+  enabled: false

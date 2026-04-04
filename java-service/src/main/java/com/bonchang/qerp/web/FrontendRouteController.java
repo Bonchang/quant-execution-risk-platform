@@ -15,6 +15,7 @@ public class FrontendRouteController {
             "/discover",
             "/stocks/{symbol}",
             "/portfolio",
+            "/portfolio/orders/{id}",
             "/orders",
             "/quant",
             "/quant/strategies/{runId}",

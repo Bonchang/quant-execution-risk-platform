@@ -11,7 +11,7 @@ import { formatDateTime, formatMoney } from '../lib/format';
 export function OrdersPage() {
   const queryClient = useQueryClient();
   const { token, role, logout } = useAuth();
-  const canTrade = hasRequiredRole(role, ['ROLE_ADMIN', 'ROLE_TRADER']);
+  const canTrade = hasRequiredRole(role, ['ROLE_ADMIN', 'ROLE_TRADER', 'ROLE_GUEST']);
 
   const ordersQuery = useQuery({
     queryKey: ['consumer-orders', token],
@@ -21,14 +21,14 @@ export function OrdersPage() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.cancelOrder(orderId, token, logout),
+    mutationFn: (orderId: number) => apiClient.cancelConsumerOrder(orderId, token, logout),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['consumer-orders'] });
     },
   });
 
   if (!token) {
-    return <InlineAuthPanel title="내 주문 보기" subtitle="viewer 이상 계정으로 로그인하면 주문 상태와 취소 가능 주문을 볼 수 있습니다." />;
+    return <InlineAuthPanel title="내 주문 보기" subtitle="게스트 세션을 시작하면 내 paper account 기준 주문 상태를 볼 수 있습니다." />;
   }
 
   if (ordersQuery.isLoading) {
@@ -81,7 +81,7 @@ export function OrdersPage() {
               <div className="order-card__footer">
                 <span>{formatDateTime(order.updatedAt)}</span>
                 <div className="inline-actions">
-                  <Link className="ghost-button" to={`/console/orders/${order.id}`}>상세</Link>
+                  <Link className="ghost-button" to={`/portfolio/orders/${order.id}`}>상세</Link>
                   {order.cancelable ? (
                     <button
                       className="ghost-button"

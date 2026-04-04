@@ -196,6 +196,11 @@ public class OrderService {
         return rows.get(0);
     }
 
+    public OrderDetailResponse getOrderDetailForAccount(Long id, Long accountId) {
+        requireOwnedOrder(id, accountId);
+        return getOrderDetail(id);
+    }
+
     @Transactional
     public CreateOrderResponse cancelOrder(Long id) {
         Order order = orderRepository.findById(id)
@@ -216,6 +221,12 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         outboxEventService.publishOrderEvent(saved, "ORDER_CANCELED");
         return toResponse(saved);
+    }
+
+    @Transactional
+    public CreateOrderResponse cancelOrderForAccount(Long id, Long accountId) {
+        requireOwnedOrder(id, accountId);
+        return cancelOrder(id);
     }
 
     @Transactional
@@ -383,5 +394,10 @@ public class OrderService {
 
     private LocalDateTime toDateTime(Timestamp timestamp) {
         return timestamp != null ? timestamp.toLocalDateTime() : null;
+    }
+
+    private Order requireOwnedOrder(Long id, Long accountId) {
+        return orderRepository.findByIdAndAccountId(id, accountId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "order not found"));
     }
 }

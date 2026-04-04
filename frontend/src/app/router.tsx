@@ -25,6 +25,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('../pages/OrdersPage')).OrdersPage }),
       },
       {
+        path: 'portfolio/orders/:id',
+        lazy: async () => ({ Component: (await import('../features/orders/OrderDetailPage')).OrderDetailPage }),
+      },
+      {
         path: 'quant',
         lazy: async () => ({ Component: (await import('../pages/QuantPage')).QuantPage }),
       },

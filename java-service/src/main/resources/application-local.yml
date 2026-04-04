@@ -1,0 +1,15 @@
+security:
+  jwt:
+    secret: qerp-local-secret-key-qerp-local-secret-key
+qerp:
+  ops-auth:
+    users:
+      - username: admin
+        password: admin123!
+        role: ADMIN
+      - username: trader
+        password: trader123!
+        role: TRADER
+      - username: viewer
+        password: viewer123!
+        role: VIEWER

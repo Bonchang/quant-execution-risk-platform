@@ -7,7 +7,7 @@ function fakeJwt(payload: object) {
 
 describe('token helpers', () => {
   it('JWT payload에서 권한을 해석한다', () => {
-    expect(decodeRoleFromJwt(fakeJwt({ auth: ['ROLE_ADMIN'] }))).toBe('ROLE_ADMIN');
+    expect(decodeRoleFromJwt(fakeJwt({ roles: ['ROLE_ADMIN'] }))).toBe('ROLE_ADMIN');
   });
 
   it('권한 허용 집합을 검사한다', () => {

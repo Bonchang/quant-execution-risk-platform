@@ -50,26 +50,6 @@ public class MarketDataIngestionService {
         if (!marketDataProperties.isEnabled()) {
             return;
         }
-        if (marketDataProperties.getApiKey() == null || marketDataProperties.getApiKey().isBlank()) {
-            log.warn("market-data.enabled=true but market-data.api-key is empty; skipping scheduled ingestion");
-            LocalDateTime now = LocalDateTime.now();
-            marketDataStatusService.recordRun(new MarketDataIngestionResult(
-                    marketDataProperties.getSourceMode(),
-                    now,
-                    now,
-                    null,
-                    0,
-                    0,
-                    0,
-                    0,
-                    "FAILED",
-                    List.of(),
-                    List.of(),
-                    List.of("market-data.api-key is not configured")
-            ));
-            return;
-        }
-
         MarketDataIngestionResult result = ingestLatestPrices();
         log.info(
                 "market data ingestion finished: total={}, success={}, failure={}",
@@ -80,15 +60,23 @@ public class MarketDataIngestionService {
     @Transactional
     public MarketDataIngestionResult ingestLatestPrices() {
         LocalDateTime startedAt = LocalDateTime.now();
+        List<Instrument> instruments = instrumentRepository.findAll().stream()
+                .sorted(Comparator.comparing(Instrument::getId))
+                .limit(Math.max(1, marketDataProperties.getMaxInstrumentsPerRun()))
+                .toList();
+
+        if (useDemoMode()) {
+            return ingestDemoQuotes(startedAt, instruments);
+        }
         if (marketDataProperties.getApiKey() == null || marketDataProperties.getApiKey().isBlank()) {
             MarketDataIngestionResult result = new MarketDataIngestionResult(
                     marketDataProperties.getSourceMode(),
                     startedAt,
                     LocalDateTime.now(),
                     null,
+                    instruments.size(),
                     0,
-                    0,
-                    0,
+                    instruments.size(),
                     (int) marketDataStatusService.countStaleQuotes(),
                     "FAILED",
                     List.of(),
@@ -99,11 +87,6 @@ public class MarketDataIngestionService {
             publishRunFailedEvent(result);
             return result;
         }
-
-        List<Instrument> instruments = instrumentRepository.findAll().stream()
-                .sorted(Comparator.comparing(Instrument::getId))
-                .limit(Math.max(1, marketDataProperties.getMaxInstrumentsPerRun()))
-                .toList();
 
         int success = 0;
         int failure = 0;
@@ -156,7 +139,7 @@ public class MarketDataIngestionService {
                 marketPriceRepository.save(marketPrice);
                 success++;
                 updatedSymbols.add(instrument.getSymbol());
-                publishQuoteUpdatedEvent(savedQuote);
+                publishQuoteUpdatedEvent(savedQuote, instrument.getId(), instrument.getSymbol());
                 orderExecutionService.reevaluateWorkingOrdersForInstrument(instrument.getId());
             } catch (Exception ex) {
                 failure++;
@@ -193,6 +176,71 @@ public class MarketDataIngestionService {
         return result;
     }
 
+    private MarketDataIngestionResult ingestDemoQuotes(LocalDateTime startedAt, List<Instrument> instruments) {
+        int success = 0;
+        List<String> updatedSymbols = new ArrayList<>();
+        LocalDateTime lastQuoteReceivedAt = null;
+        Timer.Sample sample = Timer.start(meterRegistry);
+
+        for (Instrument instrument : instruments) {
+            try {
+                LocalDateTime quoteTime = LocalDateTime.now();
+                MarketPrice referencePrice = marketPriceRepository.findFirstByInstrumentIdOrderByPriceDateDescIdDesc(instrument.getId())
+                        .orElseThrow(() -> new IllegalStateException("reference price not found"));
+                BigDecimal lastPrice = generateSyntheticLastPrice(referencePrice.getClosePrice(), instrument.getId(), quoteTime);
+                BigDecimal bidPrice = applySpread(lastPrice, false);
+                BigDecimal askPrice = applySpread(lastPrice, true);
+                BigDecimal changePercent = lastPrice.subtract(referencePrice.getClosePrice())
+                        .divide(referencePrice.getClosePrice(), 8, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(6, RoundingMode.HALF_UP);
+
+                MarketQuote marketQuote = marketQuoteRepository.findByInstrumentId(instrument.getId()).orElseGet(MarketQuote::new);
+                marketQuote.setInstrument(instrument);
+                marketQuote.setQuoteTime(quoteTime);
+                marketQuote.setLastPrice(lastPrice);
+                marketQuote.setBidPrice(bidPrice);
+                marketQuote.setAskPrice(askPrice);
+                marketQuote.setChangePercent(changePercent);
+                marketQuote.setSource("DEMO_SYNTHETIC");
+                marketQuote.setReceivedAt(quoteTime);
+                MarketQuote savedQuote = marketQuoteRepository.save(marketQuote);
+
+                success++;
+                updatedSymbols.add(instrument.getSymbol());
+                lastQuoteReceivedAt = quoteTime;
+                publishQuoteUpdatedEvent(savedQuote, instrument.getId(), instrument.getSymbol());
+                orderExecutionService.reevaluateWorkingOrdersForInstrument(instrument.getId());
+            } catch (Exception ex) {
+                incrementFailureCounter("demo_generation_exception");
+                log.warn("failed to synthesize quote for {}", instrument.getSymbol(), ex);
+            }
+        }
+
+        List<String> staleSymbols = staleSymbols();
+        for (String staleSymbol : staleSymbols) {
+            publishQuoteStaleEvent(staleSymbol);
+        }
+
+        sample.stop(Timer.builder("qerp.marketdata.quote.update.latency").register(meterRegistry));
+        MarketDataIngestionResult result = new MarketDataIngestionResult(
+                "DEMO_SYNTHETIC",
+                startedAt,
+                LocalDateTime.now(),
+                lastQuoteReceivedAt,
+                instruments.size(),
+                success,
+                instruments.size() - success,
+                staleSymbols.size(),
+                success == instruments.size() ? "SUCCESS" : "PARTIAL_SUCCESS",
+                updatedSymbols,
+                staleSymbols,
+                List.of()
+        );
+        marketDataStatusService.recordRun(result);
+        return result;
+    }
+
     private FinnhubQuoteResponse fetchFinnhubQuote(RestTemplate restTemplate, String symbol) {
         String uri = UriComponentsBuilder.fromUriString(marketDataProperties.getBaseUrl())
                 .path("/quote")
@@ -209,15 +257,15 @@ public class MarketDataIngestionService {
         return body;
     }
 
-    private void publishQuoteUpdatedEvent(MarketQuote quote) {
+    private void publishQuoteUpdatedEvent(MarketQuote quote, Long instrumentId, String symbol) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("instrumentId", quote.getInstrument().getId());
-        payload.put("symbol", quote.getInstrument().getSymbol());
+        payload.put("instrumentId", instrumentId);
+        payload.put("symbol", symbol);
         payload.put("lastPrice", quote.getLastPrice());
         payload.put("bidPrice", quote.getBidPrice());
         payload.put("askPrice", quote.getAskPrice());
         payload.put("receivedAt", quote.getReceivedAt());
-        outboxEventService.publishMarketDataEvent("MARKET_QUOTE", quote.getInstrument().getId(), "QUOTE_UPDATED", payload);
+        outboxEventService.publishMarketDataEvent("MARKET_QUOTE", instrumentId, "QUOTE_UPDATED", payload);
     }
 
     private void publishQuoteStaleEvent(String symbol) {
@@ -249,6 +297,30 @@ public class MarketDataIngestionService {
                 .stream()
                 .map(quote -> quote.getInstrument().getSymbol())
                 .toList();
+    }
+
+    private boolean useDemoMode() {
+        return marketDataProperties.getSourceMode() == null
+                || marketDataProperties.getSourceMode().isBlank()
+                || "DEMO_SYNTHETIC".equalsIgnoreCase(marketDataProperties.getSourceMode())
+                || (marketDataProperties.getApiKey() == null || marketDataProperties.getApiKey().isBlank());
+    }
+
+    private BigDecimal generateSyntheticLastPrice(BigDecimal baseClose, Long instrumentId, LocalDateTime quoteTime) {
+        long bucket = quoteTime.toEpochSecond(ZoneOffset.UTC) / Math.max(1L, marketDataProperties.getPollMs() / 1000L);
+        double wave = Math.sin((bucket + instrumentId) * 0.65d) * 0.006d
+                + Math.cos((bucket + instrumentId) * 0.21d) * 0.003d;
+        BigDecimal multiplier = BigDecimal.ONE.add(BigDecimal.valueOf(wave));
+        return baseClose.multiply(multiplier).setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal applySpread(BigDecimal lastPrice, boolean ask) {
+        BigDecimal spreadFactor = marketDataProperties.getSyntheticSpreadBps()
+                .divide(new BigDecimal("20000"), 8, RoundingMode.HALF_UP);
+        BigDecimal factor = ask
+                ? BigDecimal.ONE.add(spreadFactor)
+                : BigDecimal.ONE.subtract(spreadFactor);
+        return lastPrice.multiply(factor).setScale(6, RoundingMode.HALF_UP);
     }
 
     private void incrementFailureCounter(String reason) {

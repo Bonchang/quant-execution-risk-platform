@@ -1,5 +1,6 @@
 package com.bonchang.qerp.appview;
 
+import com.bonchang.qerp.appauth.AppSessionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,10 +13,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AppExperienceController {
 
     private final AppExperienceService appExperienceService;
+    private final AppSessionService appSessionService;
 
     @GetMapping("/home")
     public HomeScreenResponse home() {
-        return appExperienceService.loadHome();
+        Long accountId = appSessionService.currentPrincipal().map(principal -> principal.accountId()).orElse(null);
+        return appExperienceService.loadHome(accountId);
     }
 
     @GetMapping("/discover")
@@ -25,17 +28,18 @@ public class AppExperienceController {
 
     @GetMapping("/stocks/{symbol}")
     public StockDetailResponse stock(@PathVariable String symbol) {
-        return appExperienceService.loadStock(symbol);
+        Long accountId = appSessionService.currentPrincipal().map(principal -> principal.accountId()).orElse(null);
+        return appExperienceService.loadStock(symbol, accountId);
     }
 
     @GetMapping("/portfolio")
     public PortfolioScreenResponse portfolio() {
-        return appExperienceService.loadPortfolio();
+        return appExperienceService.loadPortfolio(appSessionService.requirePrincipalWithAccount().accountId());
     }
 
     @GetMapping("/orders")
     public OrdersScreenResponse orders() {
-        return appExperienceService.loadOrders();
+        return appExperienceService.loadOrders(appSessionService.requirePrincipalWithAccount().accountId());
     }
 
     @GetMapping("/quant/overview")

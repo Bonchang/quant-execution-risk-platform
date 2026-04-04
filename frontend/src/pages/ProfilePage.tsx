@@ -10,14 +10,23 @@ import { formatDateTime } from '../lib/format';
 
 export function ProfilePage() {
   const queryClient = useQueryClient();
-  const { token, role, logout } = useAuth();
+  const { token, role, login, logout } = useAuth();
   const isAdmin = hasRequiredRole(role, ['ROLE_ADMIN']);
+  const isGuest = hasRequiredRole(role, ['ROLE_GUEST']);
 
-  const healthQuery = useQuery({
-    queryKey: ['market-health', token],
-    queryFn: () => apiClient.getMarketHealth(token, logout),
+  const meQuery = useQuery({
+    queryKey: ['app-me', token],
+    queryFn: () => apiClient.getMe(token, logout),
     enabled: Boolean(token),
     refetchInterval: token ? 5000 : false,
+  });
+
+  const guestMutation = useMutation({
+    mutationFn: () => apiClient.startGuestSession(),
+    onSuccess: async (payload) => {
+      queryClient.clear();
+      login(payload);
+    },
   });
 
   const seedMutation = useMutation({
@@ -45,20 +54,34 @@ export function ProfilePage() {
   });
 
   if (!token) {
-    return <InlineAuthPanel title="프로필" subtitle="로그인하면 역할과 데모 운영 액션을 확인할 수 있습니다." />;
+    return <InlineAuthPanel title="프로필" subtitle="게스트 세션을 시작하면 내 paper account와 시장 연결 상태를 확인할 수 있습니다." />;
   }
 
   return (
     <div className="app-stack">
-      <SectionCard title="계정 상태" subtitle="현재 로그인 세션">
+      <SectionCard title="계정 상태" subtitle="현재 공개 데모 세션">
         <div className="inline-actions">
-          <Badge label={role} tone="live" />
+          <Badge label={role} tone={isGuest ? 'live' : 'neutral'} />
           <button className="ghost-button" type="button" onClick={logout}>로그아웃</button>
+          <button className="ghost-button" type="button" onClick={() => guestMutation.mutate()}>
+            새 게스트 세션
+          </button>
         </div>
         <ul className="info-list">
-          <li><strong>권한</strong><span>{role}</span></li>
-          <li><strong>시장 연결</strong><span>{healthQuery.data?.status ?? '-'}</span></li>
-          <li><strong>마지막 quote</strong><span>{formatDateTime(healthQuery.data?.lastQuoteReceivedAt ?? null)}</span></li>
+          <li><strong>표시 이름</strong><span>{meQuery.data?.displayName ?? '-'}</span></li>
+          <li><strong>세션 타입</strong><span>{meQuery.data?.authType ?? '-'}</span></li>
+          <li><strong>계좌 코드</strong><span>{meQuery.data?.account.accountCode ?? '-'}</span></li>
+          <li><strong>시장 연결</strong><span>{meQuery.data?.marketConnection.status ?? '-'}</span></li>
+          <li><strong>마지막 quote</strong><span>{formatDateTime(meQuery.data?.marketConnection.lastQuoteReceivedAt ?? null)}</span></li>
+        </ul>
+      </SectionCard>
+
+      <SectionCard title="내 paper account" subtitle="게스트 세션마다 전용 가상 자산이 분리됩니다.">
+        <ul className="info-list">
+          <li><strong>보유 계좌</strong><span>{meQuery.data?.account.ownerName ?? '-'}</span></li>
+          <li><strong>기준 통화</strong><span>{meQuery.data?.account.baseCurrency ?? '-'}</span></li>
+          <li><strong>사용 가능 현금</strong><span>{Number(meQuery.data?.account.availableCash ?? 0).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></li>
+          <li><strong>예약 현금</strong><span>{Number(meQuery.data?.account.reservedCash ?? 0).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></li>
         </ul>
       </SectionCard>
 
@@ -74,9 +97,8 @@ export function ProfilePage() {
         )}
       </SectionCard>
 
-      <SectionCard title="보조 화면" subtitle="내부 운영과 채용용 설명 화면은 별도로 남겨둡니다.">
+      <SectionCard title="보조 화면" subtitle="퀀트 설명 화면만 공개 경험에 남깁니다.">
         <div className="panel-actions">
-          <Link className="ghost-button" to="/console">운영 콘솔</Link>
           <Link className="ghost-button" to="/architecture">아키텍처</Link>
         </div>
       </SectionCard>
