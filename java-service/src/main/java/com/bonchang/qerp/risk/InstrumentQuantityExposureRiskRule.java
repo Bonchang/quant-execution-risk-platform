@@ -2,6 +2,7 @@ package com.bonchang.qerp.risk;
 
 import com.bonchang.qerp.order.Order;
 import com.bonchang.qerp.order.OrderRepository;
+import com.bonchang.qerp.order.OrderSide;
 import com.bonchang.qerp.order.OrderStatus;
 import java.math.BigDecimal;
 import java.util.List;
@@ -26,16 +27,19 @@ public class InstrumentQuantityExposureRiskRule implements RiskRule {
 
     @Override
     public RiskRuleResult evaluate(Order order) {
-        BigDecimal existingApprovedQuantity = orderRepository.sumQuantityByInstrumentIdAndStatuses(
+        BigDecimal existingSignedExposure = orderRepository.sumSignedQuantityByInstrumentIdAndStatuses(
                 order.getInstrument().getId(),
                 List.of(OrderStatus.APPROVED, OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED)
         );
-        BigDecimal projectedQuantity = existingApprovedQuantity.add(order.getQuantity());
-        boolean passed = projectedQuantity.compareTo(maxInstrumentQuantity) <= 0;
+        BigDecimal orderExposure = order.getSide() == OrderSide.BUY
+                ? order.getQuantity()
+                : order.getQuantity().negate();
+        BigDecimal projectedQuantity = existingSignedExposure.add(orderExposure);
+        boolean passed = projectedQuantity.abs().compareTo(maxInstrumentQuantity) <= 0;
         if (passed) {
             return new RiskRuleResult(RULE_NAME, true, "Instrument quantity exposure within limit");
         }
-        String message = "Projected instrument quantity %s exceeds max instrument quantity %s"
+        String message = "Projected instrument quantity exposure %s exceeds max instrument quantity %s"
                 .formatted(projectedQuantity, maxInstrumentQuantity);
         return new RiskRuleResult(RULE_NAME, false, message);
     }

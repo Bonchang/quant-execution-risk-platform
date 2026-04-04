@@ -195,6 +195,35 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    void createOrder_sellOrder_reducingExposure_isNotRejectedByInstrumentLimit() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "1000.000000", "exposure-buy-001");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "1000.000000", "exposure-buy-002");
+        insertMarketPriceTomorrow(instrumentId, "95.000000");
+
+        String sellPayload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "500.000000",
+                "orderType", "LIMIT",
+                "limitPrice", "90.000000",
+                "clientOrderId", "exposure-sell-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(sellPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value(500.0))
+                .andExpect(jsonPath("$.remainingQuantity").value(0.0));
+    }
+
+    @Test
     void createOrder_limitBuy_fillsWhenMarketPriceAtOrBelowLimit() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
@@ -550,5 +579,23 @@ class OrderControllerIntegrationTest {
                 instrumentId,
                 new java.math.BigDecimal(closePrice)
         );
+    }
+
+    private void createMarketOrder(Long strategyRunId, Long instrumentId, String side, String quantity, String clientOrderId)
+            throws Exception {
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", side,
+                "quantity", quantity,
+                "orderType", "MARKET",
+                "clientOrderId", clientOrderId
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
     }
 }

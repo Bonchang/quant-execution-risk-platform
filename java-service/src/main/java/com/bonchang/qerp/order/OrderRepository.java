@@ -8,8 +8,18 @@ import org.springframework.data.repository.query.Param;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
-    @Query("select coalesce(sum(o.quantity), 0) from Order o where o.instrument.id = :instrumentId and o.status in :statuses")
-    BigDecimal sumQuantityByInstrumentIdAndStatuses(
+    @Query("""
+            select coalesce(sum(
+                case
+                    when o.side = com.bonchang.qerp.order.OrderSide.BUY then o.quantity
+                    else -o.quantity
+                end
+            ), 0)
+            from Order o
+            where o.instrument.id = :instrumentId
+              and o.status in :statuses
+            """)
+    BigDecimal sumSignedQuantityByInstrumentIdAndStatuses(
             @Param("instrumentId") Long instrumentId,
             @Param("statuses") Collection<OrderStatus> statuses
     );
