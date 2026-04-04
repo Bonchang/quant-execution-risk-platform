@@ -290,6 +290,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "10.000000", "limit-sell-fill-buy-001");
 
         String payload = objectMapper.writeValueAsString(Map.of(
                 "strategyRunId", strategyRunId,
@@ -308,6 +309,70 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value("FILLED"))
                 .andExpect(jsonPath("$.filledQuantity").value(7.0))
                 .andExpect(jsonPath("$.remainingQuantity").value(0.0));
+    }
+
+    @Test
+    void createOrder_sellWithoutPosition_rejectedAndNoFill() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "7.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "sell-no-position-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
+        Integer positionCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM position", Integer.class);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
+        org.assertj.core.api.Assertions.assertThat(positionCount).isZero();
+    }
+
+    @Test
+    void createOrder_sellBeyondAvailablePosition_rejectedAndNoFill() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "105.000000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "2.000000", "sell-too-much-buy-001");
+
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "strategyRunId", strategyRunId,
+                "instrumentId", instrumentId,
+                "side", "SELL",
+                "quantity", "5.000000",
+                "orderType", "MARKET",
+                "clientOrderId", "sell-too-much-001"
+        ));
+
+        mockMvc.perform(post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        Integer fillCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'sell-too-much-001')",
+                Integer.class
+        );
+        String netQuantity = jdbcTemplate.queryForObject(
+                "SELECT TO_CHAR(net_quantity, 'FM9999999990.000000') FROM position WHERE strategy_run_id = ? AND instrument_id = ?",
+                String.class,
+                strategyRunId,
+                instrumentId
+        );
+
+        org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
+        org.assertj.core.api.Assertions.assertThat(netQuantity).isEqualTo("2.000000");
     }
 
     @Test

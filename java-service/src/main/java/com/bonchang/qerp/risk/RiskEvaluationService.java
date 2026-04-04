@@ -36,6 +36,7 @@ public class RiskEvaluationService {
         }
 
         order.setStatus(allPassed ? OrderStatus.APPROVED : OrderStatus.REJECTED);
+        order.setUpdatedAt(LocalDateTime.now());
         return orderRepository.save(order);
     }
 }
