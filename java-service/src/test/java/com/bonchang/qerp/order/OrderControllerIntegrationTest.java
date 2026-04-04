@@ -64,10 +64,12 @@ class OrderControllerIntegrationTest {
     private OrderExecutionService orderExecutionService;
 
     private String adminToken;
+    private String viewerToken;
 
     @BeforeEach
     void setUp() {
         adminToken = jwtTokenService.generateToken(User.withUsername("admin").password("ignored").roles("ADMIN").build());
+        viewerToken = jwtTokenService.generateToken(User.withUsername("viewer").password("ignored").roles("VIEWER").build());
         jdbcTemplate.execute("DELETE FROM outbox_event");
         jdbcTemplate.execute("DELETE FROM cash_ledger_entry");
         jdbcTemplate.execute("DELETE FROM risk_check_result");
@@ -573,6 +575,28 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    void marketDataQuotes_returnsQuoteListWithoutServerError() throws Exception {
+        Long instrumentId = insertInstrument();
+        insertMarketQuote(instrumentId, "100.000000", "99.500000", "100.500000", "0.100000");
+
+        mockMvc.perform(authorizedGet("/market-data/quotes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].symbol").value("AAPL"))
+                .andExpect(jsonPath("$[0].market").value("NASDAQ"));
+    }
+
+    @Test
+    void marketDataQuoteBySymbol_returnsQuoteWithoutServerError() throws Exception {
+        Long instrumentId = insertInstrument();
+        insertMarketQuote(instrumentId, "100.000000", "99.500000", "100.500000", "0.100000");
+
+        mockMvc.perform(authorizedGet("/market-data/quotes/aapl"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.symbol").value("AAPL"))
+                .andExpect(jsonPath("$.lastPrice").value(100.0));
+    }
+
+    @Test
     void getOrder_returnsDetailShapeWithAuditCollections() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
@@ -632,6 +656,16 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    void appHome_emptyStateStillReturns200() throws Exception {
+        mockMvc.perform(get("/app/home"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assetSummary.ownerName").value("데모 계좌 없음"))
+                .andExpect(jsonPath("$.featuredStocks").isArray())
+                .andExpect(jsonPath("$.highlights[0].title").value("내 자산"))
+                .andExpect(jsonPath("$.quantSpotlight").isEmpty());
+    }
+
+    @Test
     void appStockDetail_combinesQuoteSignalAndTradeContext() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
@@ -661,7 +695,7 @@ class OrderControllerIntegrationTest {
         insertMarketQuote(instrumentId, "101.000000", "100.800000", "101.200000", "1.000000");
         createMarketOrder(strategyRunId, instrumentId, "BUY", "3.000000", "app-portfolio-order-001");
 
-        mockMvc.perform(authorizedGet("/app/portfolio"))
+        mockMvc.perform(viewerAuthorizedGet("/app/portfolio"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.account.accountCode").exists())
                 .andExpect(jsonPath("$.holdings[0].symbol").value("AAPL"))
@@ -844,5 +878,9 @@ class OrderControllerIntegrationTest {
 
     private MockHttpServletRequestBuilder authorizedGet(String url) {
         return get(url).header("Authorization", "Bearer " + adminToken);
+    }
+
+    private MockHttpServletRequestBuilder viewerAuthorizedGet(String url) {
+        return get(url).header("Authorization", "Bearer " + viewerToken);
     }
 }

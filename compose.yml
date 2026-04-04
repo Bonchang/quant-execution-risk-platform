@@ -28,11 +28,14 @@ services:
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
       SERVER_PORT: 8080
+      RESEARCH_ARTIFACTS_PATH: /app/artifacts
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8080:8080"
+    volumes:
+      - ./python-research/artifacts:/app/artifacts:ro
 
   prometheus:
     image: prom/prometheus:v3.3.1

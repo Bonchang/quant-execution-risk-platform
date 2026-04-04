@@ -398,7 +398,8 @@ public class AppExperienceService {
                 LEFT JOIN LATERAL (
                     SELECT total_market_value, total_pnl, return_rate, snapshot_at
                     FROM portfolio_snapshot ps
-                    WHERE ps.account_id = a.id
+                    JOIN strategy_run sr ON sr.id = ps.strategy_run_id
+                    WHERE sr.account_id = a.id
                     ORDER BY ps.snapshot_at DESC, ps.id DESC
                     LIMIT 1
                 ) ps ON true
@@ -436,7 +437,7 @@ public class AppExperienceService {
     }
 
     private List<HomeScreenResponse.FeaturedStock> loadFeaturedStocks() {
-        return jdbcTemplate.query(
+        List<HomeScreenResponse.FeaturedStock> stocks = jdbcTemplate.query(
                 """
                 SELECT i.symbol,
                        i.name,
@@ -462,6 +463,7 @@ public class AppExperienceService {
                 ),
                 staleThreshold()
         );
+        return stocks == null ? List.of() : stocks;
     }
 
     private List<HomeScreenResponse.Highlight> buildHighlights(

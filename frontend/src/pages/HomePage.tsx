@@ -11,6 +11,7 @@ import { useMode } from '../lib/mode/ModeContext';
 
 const toneMap = {
   positive: 'success',
+  negative: 'danger',
   warning: 'warning',
   accent: 'live',
   neutral: 'neutral',
@@ -133,7 +134,19 @@ export function HomePage() {
             </div>
           </div>
         </section>
-      ) : null}
+      ) : (
+        <section className="section-block">
+          <div className="panel-header">
+            <div>
+              <h2>오늘의 퀀트 인사이트</h2>
+              <p>리서치 artifact가 연결되면 이 영역이 전략 카드로 바뀝니다.</p>
+            </div>
+          </div>
+          <section className="app-panel">
+            <p className="muted">아직 연결된 퀀트 인사이트가 없습니다. 관리자 계정으로 데모 데이터를 만들거나 리서치 artifact를 연결하면 여기에 전략 근거가 표시됩니다.</p>
+          </section>
+        </section>
+      )}
 
       <section className="section-block">
         <div className="panel-header">
@@ -142,28 +155,34 @@ export function HomePage() {
             <p>시세 변화가 살아 있는 종목을 카드형으로 먼저 보여줍니다.</p>
           </div>
         </div>
-        <div className="stock-card-grid">
-          {featuredStocks.map((stock) => {
-            const positive = stock.changePercent >= 0;
-            return (
-              <Link className="stock-card" key={stock.symbol} to={`/stocks/${stock.symbol}`}>
-                <div className="stock-card__header">
-                  <div>
-                    <strong>{stock.symbol}</strong>
-                    <p>{stock.name}</p>
+        {featuredStocks.length > 0 ? (
+          <div className="stock-card-grid">
+            {featuredStocks.map((stock) => {
+              const positive = stock.changePercent >= 0;
+              return (
+                <Link className="stock-card" key={stock.symbol} to={`/stocks/${stock.symbol}`}>
+                  <div className="stock-card__header">
+                    <div>
+                      <strong>{stock.symbol}</strong>
+                      <p>{stock.name}</p>
+                    </div>
+                    <Badge label={stock.stale ? 'STALE' : 'LIVE'} tone={stock.stale ? 'stale' : 'live'} />
                   </div>
-                  <Badge label={stock.stale ? 'STALE' : 'LIVE'} tone={stock.stale ? 'stale' : 'live'} />
-                </div>
-                <strong className="stock-card__price">{formatMoney(stock.lastPrice, 2)}</strong>
-                <span className={positive ? 'text-up' : 'text-down'}>
-                  {positive ? '+' : ''}
-                  {formatPercent(stock.changePercent)}
-                </span>
-                <p className="muted">{stock.reason}</p>
-              </Link>
-            );
-          })}
-        </div>
+                  <strong className="stock-card__price">{formatMoney(stock.lastPrice, 2)}</strong>
+                  <span className={positive ? 'text-up' : 'text-down'}>
+                    {positive ? '+' : ''}
+                    {formatPercent(stock.changePercent)}
+                  </span>
+                  <p className="muted">{stock.reason}</p>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <section className="app-panel">
+            <p className="muted">아직 표시할 실시간 종목이 없습니다. 관리자가 시세 수집 또는 데모 데이터 생성을 실행하면 추천 종목이 여기에 표시됩니다.</p>
+          </section>
+        )}
       </section>
     </div>
   );

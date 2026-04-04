@@ -88,3 +88,27 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
           python -m qerp_research.run_backtest --help
+      - name: Compose app smoke check
+        run: |
+          docker compose -f compose.yml up --build -d
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8080/actuator/health > /tmp/health.json; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8080/
+          curl -fsS http://localhost:8080/discover
+          curl -fsS http://localhost:8080/stocks/DEMO_AAPL || curl -fsS http://localhost:8080/stocks/AAPL
+          curl -fsS http://localhost:8080/app/home
+          TOKEN=$(curl -fsS -X POST http://localhost:8080/auth/token -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123!"}' | python -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          curl -fsS -X POST http://localhost:8080/dashboard/seed-demo -H "Authorization: Bearer $TOKEN"
+          VIEWER_TOKEN=$(curl -fsS -X POST http://localhost:8080/auth/token -H "Content-Type: application/json" -d '{"username":"viewer","password":"viewer123!"}' | python -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          curl -fsS http://localhost:8080/app/home
+          curl -fsS http://localhost:8080/app/stocks/DEMO_AAPL
+          curl -fsS http://localhost:8080/app/portfolio -H "Authorization: Bearer $VIEWER_TOKEN"
+          curl -fsS http://localhost:8080/app/orders -H "Authorization: Bearer $VIEWER_TOKEN"
+          curl -fsS http://localhost:8080/market-data/quotes -H "Authorization: Bearer $VIEWER_TOKEN"
+      - name: Compose shutdown
+        if: always()
+        run: docker compose -f compose.yml down -v

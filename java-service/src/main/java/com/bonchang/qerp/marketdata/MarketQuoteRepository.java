@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,6 +15,7 @@ public interface MarketQuoteRepository extends JpaRepository<MarketQuote, Long> 
 
     Optional<MarketQuote> findFirstByOrderByReceivedAtDescIdDesc();
 
+    @EntityGraph(attributePaths = "instrument")
     List<MarketQuote> findAllByOrderByReceivedAtDescIdDesc(Pageable pageable);
 
     long countByReceivedAtBefore(LocalDateTime threshold);
@@ -31,7 +33,7 @@ public interface MarketQuoteRepository extends JpaRepository<MarketQuote, Long> 
             select mq
             from MarketQuote mq
             join fetch mq.instrument i
-            where i.symbol = :symbol
+            where upper(i.symbol) = upper(:symbol)
             """)
     Optional<MarketQuote> findByInstrumentSymbol(@Param("symbol") String symbol);
 }

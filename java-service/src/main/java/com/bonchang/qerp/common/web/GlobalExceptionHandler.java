@@ -1,7 +1,10 @@
 package com.bonchang.qerp.common.web;
 
+import com.bonchang.qerp.security.CorrelationIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -11,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -55,6 +59,12 @@ public class GlobalExceptionHandler {
             Exception ex,
             HttpServletRequest request
     ) {
+        log.error(
+                "Unhandled exception path={} correlationId={}",
+                request.getRequestURI(),
+                MDC.get(CorrelationIdFilter.MDC_KEY),
+                ex
+        );
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                 new ApiErrorResponse(
                         LocalDateTime.now(),
