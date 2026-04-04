@@ -1,198 +1,184 @@
-## 10. 프로젝트 정밀 분석 (Repository Deep Analysis)
+## Repository Deep Analysis
 
-이 섹션은 현재 코드베이스(루트, `java-service`, `python-research`, `docs`)를 기준으로 실제 구현 상태를 상세하게 정리한 분석 문서다.
+이 문서는 현재 코드베이스를 기준으로 실제 구현 상태를 상세하게 정리한 문서다.
 
-### 10.1 저장소의 실제 역할과 경계
+### 1. 저장소 역할
 
-- 저장소는 운영 백엔드(`java-service`)와 리서치 공간(`python-research`)을 분리한 구조다.
-- 운영 트랜잭션(주문/리스크/체결/포지션/시장데이터 수집)은 Java 서비스가 담당한다.
-- Python 리서치 영역은 현재 `.gitkeep`만 존재하며, 운영 로직은 포함하지 않는다.
-- `docs`는 아키텍처/범위/ERD의 의도와 경계를 명시하고, 실제 구현은 Java 코드와 Flyway SQL이 기준 소스다.
+- `java-service`: 운영 백엔드
+- `python-research`: 리서치 placeholder
+- `docs`: 아키텍처/범위/ERD/핸드오버 문서
+- `compose.yml`: 로컬 PostgreSQL 16
 
-### 10.2 Java 서비스 아키텍처 (실구현 기준)
+### 2. Java 서비스 구조
 
-#### 애플리케이션 부팅과 인프라
+#### 2.1 부팅과 인프라
 
-- `JavaServiceApplication`은 `@EnableScheduling`을 사용하므로, 시장데이터 수집 스케줄이 런타임에서 활성화 가능하다.
-- DB 스키마는 Flyway(`spring.flyway.enabled: true`, `classpath:db/migration`)로 관리되고, JPA는 `ddl-auto: validate`로 검증만 수행한다.
-- 로컬 DB 표준은 `compose.yml`의 PostgreSQL 16 (`postgres:16`, `5432`)이다.
+- `JavaServiceApplication`은 `@EnableScheduling` 사용
+- Flyway가 스키마를 관리하고 JPA는 `validate`만 수행
+- 기본 DB는 PostgreSQL 16
+- 시장데이터는 Finnhub API를 옵션으로 사용
 
-#### 계층 구조
+#### 2.2 계층
 
-1. API Layer
-   - `OrderController` (`POST /orders`)
-   - `DashboardController` (`GET /dashboard/overview`, `GET /dashboard/options`, `POST /dashboard/seed-demo`)
-   - `MarketDataController` (`GET /market-data/status`, `POST /market-data/ingest`)
-2. Application Service Layer
-   - `OrderService` (주문 생성 오케스트레이션)
-   - `RiskEvaluationService` (리스크 룰 평가 및 결과 영속화)
-   - `OrderExecutionService` (승인 주문 실행, Fill/Position 반영)
-   - `DashboardService` (운영 집계/옵션/데모데이터)
-   - `MarketDataIngestionService` / `MarketDataStatusService` (시장 데이터 수집 및 상태)
-3. Domain/Persistence Layer
-   - 엔티티: `Instrument`, `MarketPrice`, `StrategyRun`, `Order`, `RiskCheckResult`, `Fill`, `Position`
-   - 저장소: 각 도메인별 Spring Data JPA Repository
-4. Static UI Layer
-   - `/` 에서 정적 대시보드 UI(`static/index.html`, `app.js`, `app.css`) 제공
+1. API
+   - `OrderController`
+   - `DashboardController`
+   - `MarketDataController`
+2. Application
+   - `OrderService`
+   - `RiskEvaluationService`
+   - `OrderExecutionService`
+   - `PortfolioSnapshotService`
+   - `DashboardService`
+   - `MarketDataIngestionService`
+   - `MarketDataStatusService`
+3. Persistence
+   - JPA Entity + Repository
+4. Static UI
+   - `/` 정적 대시보드
 
-### 10.3 주문 도메인: 상태기계와 트랜잭션 경로
+### 3. 주문 처리 경로
 
-#### 입력 계약
+`OrderService#createOrder`의 실제 순서는 아래와 같다.
 
-`CreateOrderRequest` 검증 제약:
-- `strategyRunId`, `instrumentId`, `side`, `quantity`, `orderType`는 `@NotNull`
-- `quantity`는 `@DecimalMin("0.000001")`
-- `clientOrderId`는 `@NotBlank`, `@Size(max=64)`
+1. 입력 검증
+2. `strategyRunId`, `instrumentId` 존재 확인
+3. `orders`에 `CREATED` 저장
+4. `RiskEvaluationService` 실행
+5. `OrderExecutionService` 실행
+6. 최종 상태를 포함한 응답 반환
 
-#### 주문 처리 순서 (`OrderService#createOrder`, `@Transactional`)
+실제 상태 전이:
 
-1. `strategyRunId`/`instrumentId` 존재 검증
-   - 미존재 시 `400 Bad Request` (`ResponseStatusException`)
-2. `Order(status=CREATED)` 저장
-3. `RiskEvaluationService` 호출
-4. `OrderExecutionService` 호출
-5. 최종 상태를 포함한 `CreateOrderResponse` 반환
+- `CREATED`
+- `APPROVED` 또는 `REJECTED`
+- 실행 후 `PARTIALLY_FILLED` 또는 `FILLED`
 
-#### 상태 전이의 실제 구현
+### 4. 리스크 엔진
 
-- 초기: `CREATED`
-- 리스크 전체 통과: `APPROVED`
-- 리스크 1개라도 실패: `REJECTED`
-- `APPROVED` 주문 실행 완료: `FILLED`
+`RiskEvaluationService`는 등록된 `RiskRule`을 순서대로 실행하고 결과를 항상 `risk_check_result`에 적재한다.
 
-### 10.4 리스크 엔진: 규칙 기반 평가 + 감사 추적
+구현된 룰:
 
-`RiskEvaluationService`는 등록된 `List<RiskRule>`를 순회하며 각 결과를 `risk_check_result`에 반드시 적재한다.
-
-구현된 규칙:
 1. `MaxOrderQuantityRiskRule`
-   - 설정값 `risk.max-order-quantity`(기본 1000) 기준으로 단일 주문 수량 제한
 2. `InstrumentQuantityExposureRiskRule`
-   - 동일 종목의 누적 승인/체결 수량 + 현재 주문 수량이
-     `risk.max-instrument-quantity`(기본 2000)를 초과하는지 평가
 
-의미:
-- “왜 주문이 거절되었는지”가 rule 단위 메시지로 DB에 남아 사후분석/감사 가능성이 높다.
+특징:
 
-### 10.5 실행/체결/포지션: MVP 실행모델의 핵심 로직
+- 종목 노출 계산은 signed quantity 기반
+- BUY는 노출 증가
+- SELL는 노출 감소
+- 기준 상태는 `APPROVED`, `PARTIALLY_FILLED`, `FILLED`
 
-`OrderExecutionService`는 `APPROVED` 주문만 실행한다.
+### 5. 실행과 체결
 
-#### 체결 가격 결정
+#### 5.1 가격 결정
 
-1. 우선순위: `market_price` 최신 종가 조회  
-   (`findFirstByInstrumentIdOrderByPriceDateDescIdDesc`)
-2. 없으면 fallback: `execution.default-fill-price` (기본 `1.000000`)
+1. 최신 `market_price.close_price`
+2. 없으면 `execution.default-fill-price`
 
-참고: 메서드명의 `...PriceDateDescIdDesc`는 동일 날짜 데이터에서 `id DESC`로 최신 레코드를 추가 tie-break 하도록 의도된 구현이다.
+#### 5.2 MARKET 주문
 
-#### Fill 처리
+- 승인 즉시 실행
+- 2개 fill 청크로 분할 저장
 
-- 주문당 1건 체결을 생성 (`fill` 저장)
-- DB 유니크 제약: `uk_fill_order_id` (order_id unique)
+#### 5.3 LIMIT 주문
 
-#### Position upsert
+- 조건 충족 시 1회 fill
+- 미충족이면 `APPROVED`로 유지
 
-- 키: `(strategy_run_id, instrument_id)`
-- BUY:
-  - 수량 증가
-  - 가중평균단가 재계산 (`scale=6`, `HALF_UP`)
-- SELL:
-  - 수량 감소
-  - 수량이 0 이하가 되면 평균단가 0으로 초기화
+#### 5.4 Position 업데이트
 
-### 10.6 시장 데이터 수집: 운영 보조 파이프라인
+- BUY: 수량 증가 + 가중평균단가 계산
+- SELL: 수량 감소
+- 수량이 0 이하가 되면 현재 구현상 평균단가를 0으로 초기화
 
-`MarketDataIngestionService`는 Finnhub Quote API를 호출해 `market_price`를 upsert한다.
+### 6. 포트폴리오 스냅샷
 
-- 스케줄: `@Scheduled(fixedDelayString = "${market-data.poll-ms:60000}")`
-- 활성 조건:
-  - `market-data.enabled=true`
-  - `market-data.api-key` 설정
-- 수동 실행: `POST /market-data/ingest` (응답 202)
-- 상태 조회: `GET /market-data/status`
-- API 키 미설정 시 실패로 처리하지 않고 운영 상태에 명시적 메시지 기록:
-  - `"market-data.api-key is not configured"`
+`PortfolioSnapshotService`는 fill 이후 또는 수동 refresh 시 아래 KPI를 계산한다.
 
-### 10.7 대시보드: 운영 상태 가시성 계층
+- `total_market_value`
+- `unrealized_pnl`
+- `realized_pnl`
+- `total_pnl`
+- `return_rate`
 
-`DashboardService`는 `JdbcTemplate` 기반 SQL 집계를 통해 아래를 제공한다.
+기준 데이터:
 
-1. `GET /dashboard/overview`
-   - 주문 상태 카운트/비율
-   - 최근 주문/리스크체크/체결/포지션 목록
-   - `limit` 파라미터는 1~100으로 정규화
-2. `GET /dashboard/options`
-   - 전략 실행 옵션
-   - 종목 옵션 + 최신 종가(LEFT JOIN LATERAL로 최신 레코드 조회)
-3. `POST /dashboard/seed-demo`
-   - 데모 종목/가격/전략실행 데이터 생성
+- `position`
+- 최신 `market_price`
+- `fill` history
 
-의미:
-- 운영자 관점에서 “주문 생성→판정→체결→포지션”의 end-to-end 상태를 즉시 점검할 수 있다.
+### 7. 시장데이터 수집
 
-### 10.8 예외/오류 모델
+`MarketDataIngestionService`는 Finnhub quote를 읽어 `market_price`를 upsert한다.
 
-`GlobalExceptionHandler`가 일관된 `ApiErrorResponse`를 반환한다.
+- 수동: `POST /market-data/ingest`
+- 상태: `GET /market-data/status`
+- 스케줄: `market-data.enabled=true`일 때 동작
+- API Key 미설정 시 graceful degradation
 
-- `ResponseStatusException` → 해당 HTTP 상태로 매핑
-- `MethodArgumentNotValidException` → 첫 필드 에러를 `"field: message"`로 반환
-- 그 외 예외 → `500`, `"Unexpected server error"`
+### 8. 대시보드
 
-응답 구조:
-- `timestamp`, `status`, `error`, `message`, `path`
+`DashboardService`는 `JdbcTemplate` 기반 집계를 제공한다.
 
-### 10.9 DB 마이그레이션/무결성 분석
+주요 API:
 
-Flyway 버전:
+- `GET /dashboard/overview`
+- `GET /dashboard/options`
+- `POST /dashboard/seed-demo`
+- `POST /dashboard/portfolio-snapshots/refresh`
 
-- `V1__init_mvp_schema.sql`
-  - `instrument`, `strategy_run`, `market_price`, `orders`
-  - `orders(strategy_run_id, client_order_id)` unique
-- `V2__add_risk_check_result_table.sql`
-  - `risk_check_result` + `order_id` index
-- `V3__add_fill_and_position_tables.sql`
-  - `fill` (order unique), `position` (strategy_run+instrument unique)
-- `V4__enforce_market_price_uniqueness.sql`
-  - `market_price` 중복 정리 후 `(instrument_id, price_date)` unique 추가
+조회 항목:
 
-핵심 무결성의 의미:
-- 주문 idempotency(전략 실행 단위 client_order_id 중복 방지)
-- 주문-체결 1:1 보장(MVP 가정)
-- 포지션 upsert 키 보장(전략실행+종목 단위 단일 포지션)
-- 일자별 종가 데이터 중복 방지
+- 주문 상태 요약
+- 최근 주문
+- 리스크 체크
+- 체결
+- 포지션
+- 포트폴리오 스냅샷
 
-### 10.10 테스트 커버리지의 실제 범위
+### 9. DB 마이그레이션
 
-현재 테스트는 `OrderControllerIntegrationTest` 1개 클래스이며, Testcontainers(PostgreSQL 16) 기반 통합 테스트로 구성되어 있다.
+- `V1`: core schema
+- `V2`: risk check result
+- `V3`: fill / position
+- `V4`: market price uniqueness
+- `V5`: order execution lifecycle + multi-fill
+- `V6`: limit price
+- `V7`: portfolio snapshot
 
-검증 범위:
-- 정상 주문 생성 시 `FILLED`, Fill/Position 생성
-- `clientOrderId` 중복 충돌(409)
-- 리스크 초과 주문 `REJECTED` + Fill 미생성
-- 미존재 `strategyRunId`에 대한 400
-- 시장데이터 API 키 미설정 처리
-- 시장데이터 상태 API 결과 노출
+핵심 무결성:
 
-해석:
-- 핵심 주문 라이프사이클은 통합수준에서 검증되고 있으나,
-- Dashboard API의 상세 케이스, Rule 단위 unit test, 동시성/성능 테스트는 확장 여지가 있다.
+- 주문 멱등성: `(strategy_run_id, client_order_id)`
+- 포지션 단일성: `(strategy_run_id, instrument_id)`
+- 일자별 시장가격 단일성: `(instrument_id, price_date)`
 
-### 10.11 운영/실행 관점 종합 평가
+### 10. 테스트 범위
 
-현재 QERP는 “운영 최소 경로(MVP)”를 실제 코드와 DB 제약으로 일관되게 완성했다.
+- 주문 생성/거절
+- MARKET / LIMIT 체결
+- 중복 주문
+- 포트폴리오 집계
+- realized PnL 계산
+- 시장데이터 상태
 
-강점:
-- 주문-리스크-실행-체결-포지션의 end-to-end 연결이 단일 트랜잭션 흐름으로 명확함
-- 리스크 판정 결과의 감사 추적성이 높음
-- Flyway + validate 전략으로 스키마 거버넌스가 안정적임
-- 대시보드와 시장데이터 상태 API로 운영 가시성이 확보됨
+테스트 인프라:
 
-남은 과제(코드 기준):
-- PortfolioSnapshot 미구현
-- 부분체결/슬리피지/고급 실행 정책 미구현
-- 현금/계좌 기반 리스크 및 인증/권한 미구현
-- 비동기 메시지 기반 확장(고부하 대응) 미도입
+- Testcontainers PostgreSQL
 
-결론:
-- 본 저장소는 “실거래 확장 전 단계의 정량 주문 실행 리스크 플랫폼 MVP”로서 구조적 일관성과 확장 포인트를 모두 확보한 상태다.
+### 11. 현재 기술부채
+
+1. 승인/노출 계산의 동시성 안전성 부족
+2. 숏 포지션 회계 정책 단순화
+3. 시장데이터 상태의 인메모리 보관
+4. 인증/권한 부재
+5. 메트릭/트레이싱/알림 부재
+
+### 12. 다음 개선 우선순위
+
+1. 리스크 승인 경로의 동시성 강화
+2. 현금/계좌 기반 리스크
+3. 고급 실행 상태와 정책
+4. 숏 포지션 및 고급 성과 분석
+5. 운영 관측성과 보안

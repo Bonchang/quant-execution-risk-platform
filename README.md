@@ -1,8 +1,8 @@
 # Quant Execution Risk Platform (QERP)
 
-QERP는 정량 전략 주문을 **리스크 통제 하에서 실행**하고, 체결/포지션까지 일관되게 추적하기 위한 백엔드 중심 플랫폼이다.
+QERP는 정량 전략 주문을 리스크 통제 하에서 생성, 승인, 실행하고 체결과 포지션, 포트폴리오 스냅샷까지 추적하는 백엔드 중심 플랫폼이다.
 
-현재 저장소는 Java 운영 서비스와 Python 리서치 영역을 분리한 모노레포로 운영된다.
+현재 저장소는 Java 운영 서비스와 Python 리서치 공간을 분리한 모노레포다.
 
 ## 1. System Objective
 
@@ -11,76 +11,163 @@ QERP는 정량 전략 주문을 **리스크 통제 하에서 실행**하고, 체
 1. 전략 실행 컨텍스트(`StrategyRun`)에서 주문(`Order`)을 생성하고 영속화한다.
 2. 주문 직후 룰 기반 리스크 평가를 수행해 승인/거절을 결정한다.
 3. 승인 주문은 실행 단계로 연결하여 체결(`Fill`)과 포지션(`Position`)을 갱신한다.
-4. 전 과정을 DB/Flyway 기반으로 감사 가능하게 남기고, 대시보드에서 확인 가능하게 한다.
+4. 체결 이후 포트폴리오 스냅샷(`PortfolioSnapshot`)을 적재하고 대시보드에서 조회 가능하게 한다.
 
 ## 2. Repository Layout
 
 ```text
 quant-execution-risk-platform/
   java-service/         # 운영 백엔드 (Spring Boot, JPA, Flyway)
-  python-research/      # 전략 연구/실험 영역 (오프라인 분석)
-  docs/                 # 아키텍처/범위/ERD 문서
-  compose.yml           # 로컬 PostgreSQL
+  python-research/      # 전략 연구/실험 영역
+  docs/                 # 아키텍처/범위/ERD/핸드오버 문서
+  compose.yml           # 로컬 PostgreSQL 16
 ```
 
 ## 3. Technology Stack
 
 ### Java Service
 
-- Java 17+ / Spring Boot 3.5
+- Java 17+
+- Spring Boot 3.5
 - Spring Web
 - Spring Data JPA
 - PostgreSQL
 - Flyway
 - Gradle
 - Lombok
+- Testcontainers
 
 ### Python Research
 
-- 전략 실험/백테스트/분석용 영역 (운영 트랜잭션 책임 없음)
+- 현재는 리서치용 placeholder 영역만 존재
 
-## 4. Current Delivery Status (as of 2026-04-02)
+## 4. Current Delivery Status (as of 2026-04-04)
 
 ### Delivered
 
 1. Spring Boot + Gradle 서비스 부트스트랩
-2. 도메인 엔티티: `Instrument`, `MarketPrice`, `StrategyRun`, `Order`, `RiskCheckResult`, `Fill`, `Position`
-3. `POST /orders` 주문 API
-4. 리스크 엔진 스켈레톤 및 2개 룰
+2. 도메인 엔티티
+   - `Instrument`
+   - `MarketPrice`
+   - `StrategyRun`
+   - `Order`
+   - `RiskCheckResult`
+   - `Fill`
+   - `Position`
+   - `PortfolioSnapshot`
+3. 주문 API
+   - `POST /orders`
+4. 리스크 엔진 및 구현 룰 2개
    - 최대 주문 수량 한도
-   - 종목별 수량 노출 한도
+   - 종목별 signed quantity exposure 한도
 5. 주문 상태 전이
    - `CREATED -> APPROVED/REJECTED`
-   - 승인 주문 실행 후 `PARTIALLY_FILLED` 또는 `FILLED`
-6. 체결/포지션 구현
-   - 주문당 다중 `fill` 적재 지원
-   - 체결 단위 `position` 누적 반영
-   - 주문 실행 수량(`filled_quantity`, `remaining_quantity`) 추적
-   - LIMIT 조건가(`limit_price`) 기반 체결 지원
-7. Flyway 마이그레이션
+   - 실행 후 `PARTIALLY_FILLED` 또는 `FILLED`
+6. 실행/체결/포지션 구현
+   - MARKET 주문은 데모 목적상 2개 fill 청크로 분할 저장
+   - LIMIT 주문은 최신 종가 기준 조건 충족 시 1회 fill
+   - 주문별 `filled_quantity`, `remaining_quantity`, `last_executed_at` 추적
+7. 포트폴리오 스냅샷
+   - 체결 시 자동 생성
+   - `POST /dashboard/portfolio-snapshots/refresh` 수동 갱신
+   - `realized_pnl`, `unrealized_pnl`, `total_pnl`, `return_rate` 계산
+8. 진행상황 웹 대시보드
+   - `/` 정적 UI
+   - `/dashboard/overview`
+   - `/dashboard/options`
+   - `/dashboard/seed-demo`
+9. 외부 시장 데이터 수집
+   - `POST /market-data/ingest`
+   - `GET /market-data/status`
+   - 설정 기반 스케줄 실행
+10. Flyway 마이그레이션
    - `V1` core schema
    - `V2` risk check results
    - `V3` fill/position
+   - `V4` market price uniqueness
+   - `V5` order execution lifecycle
+   - `V6` limit price
    - `V7` portfolio snapshot
-8. 진행상황 웹 대시보드
-   - `/` 정적 UI
-   - `/dashboard/overview` 집계 API
-9. 포트폴리오 스냅샷
-   - `portfolio_snapshot` 적재
-   - 시가평가 기반 포트폴리오 KPI(평가금액/미실현손익/총손익/수익률) 제공
 
 ### Not Yet Delivered
 
 1. 현금/계좌 기반 리스크
-2. 실거래 어댑터 및 고급 실행 로직
-3. 실시간 스트리밍/메시지 브로커
-4. 인증/권한
-5. 고급 포트폴리오 분석(Realized PnL 정교화, Drawdown, Sharpe)
+2. 실거래 브로커 어댑터 및 고급 실행 정책
+3. 인증/권한
+4. 메시지 브로커 기반 비동기 파이프라인
+5. 숏 포지션/고급 실현손익 정책의 정교화
 
-## 5. Runtime Lifecycle
+## 5. Local Run
+
+### Prerequisites
+
+- Java 17 이상
+- Docker Desktop
+
+### 5.1 PostgreSQL 실행
+
+저장소 루트에서 실행:
+
+```powershell
+docker compose -f compose.yml up -d
+```
+
+기본 접속 정보:
+
+- DB: `qerp`
+- User: `postgres`
+- Password: `postgres`
+- Port: `5432`
+
+### 5.2 Java 서비스 실행
+
+PowerShell:
+
+```powershell
+cd java-service
+.\gradlew.bat bootRun
+```
+
+macOS/Linux:
+
+```bash
+cd java-service
+./gradlew bootRun
+```
+
+기본 환경변수는 아래 값으로 동작한다.
+
+- `DB_HOST=localhost`
+- `DB_PORT=5432`
+- `DB_NAME=qerp`
+- `DB_USERNAME=postgres`
+- `DB_PASSWORD=postgres`
+- `SERVER_PORT=8080`
+
+옵션:
+
+- `FINNHUB_API_KEY`를 설정하면 시장데이터 수집 API 사용 가능
+- `market-data.enabled=true`로 실행하면 스케줄 수집 활성화 가능
+
+### 5.3 테스트 실행
+
+```powershell
+cd java-service
+.\gradlew.bat test
+```
+
+테스트는 Testcontainers 기반 PostgreSQL을 사용하므로 Docker가 필요하다.
+
+### 5.4 접속 URL
+
+- Dashboard UI: `http://localhost:8080/`
+- Dashboard Overview API: `http://localhost:8080/dashboard/overview`
+- Market Data Status API: `http://localhost:8080/market-data/status`
+
+## 6. Runtime Lifecycle
 
 1. 애플리케이션 시작
-2. Flyway migration 적용 (V1~V7)
+2. Flyway migration 적용 (`V1` ~ `V7`)
 3. JPA schema validate
 4. API 요청 처리 시작
 5. 주문 라이프사이클
@@ -92,10 +179,10 @@ quant-execution-risk-platform/
    6. 실행 정책에 따라 1회 이상 `fill` 생성
    7. 각 `fill`마다 `position` 갱신
    8. 주문 상태를 `PARTIALLY_FILLED` 또는 `FILLED`로 갱신
-6. 체결 발생 시 포트폴리오 스냅샷 자동 생성
-7. 대시보드/조회 API에서 현재 상태 확인
+6. 체결 발생 시 포트폴리오 스냅샷 생성
+7. 대시보드와 조회 API에서 현재 상태 확인
 
-## 6. High-Level Architecture
+## 7. High-Level Architecture
 
 ```mermaid
 flowchart LR
@@ -109,72 +196,42 @@ flowchart LR
     H --> I["Fill Persist"]
     I --> J["Position Update"]
     J --> K["Order PARTIALLY_FILLED/FILLED"]
-    C --> L["RiskCheckResult Persist"]
-    K --> M["Dashboard Overview API"]
-    F --> M
+    I --> L["Portfolio Snapshot"]
+    C --> M["RiskCheckResult Persist"]
+    K --> N["Dashboard Overview API"]
+    F --> N
 ```
 
-## 7. Database Governance
+## 8. Main API Endpoints
+
+- `POST /orders`
+- `GET /dashboard/overview?limit=20`
+- `GET /dashboard/options`
+- `POST /dashboard/seed-demo`
+- `POST /dashboard/portfolio-snapshots/refresh`
+- `GET /market-data/status`
+- `POST /market-data/ingest`
+
+## 9. Database Governance
 
 - 스키마 변경은 Flyway만 사용
 - JPA는 `ddl-auto: validate`로 매핑 검증만 수행
 - 주요 무결성
-  - PK/FK
   - `orders(strategy_run_id, client_order_id)` unique
-  - `fill(order_id)`는 unique 아님 (주문당 다중 체결 허용)
   - `position(strategy_run_id, instrument_id)` unique
+  - `market_price(instrument_id, price_date)` unique
+  - `fill(order_id)`는 unique 아님
 
-## 8. MVP Execution Policy (현재 구현)
+## 10. Notes
 
-- `MARKET` 주문
-  - 승인 즉시 실행
-  - 데모 목적상 2개 체결 청크로 분할하여 저장 (합계는 주문 수량과 동일)
-  - 최종 상태는 `FILLED`
-- `LIMIT` 주문
-  - `limit_price`가 필수
-  - 체결 기준가는 최신 `market_price.close_price`
-  - BUY LIMIT: `close_price <= limit_price`일 때 전량 체결
-  - SELL LIMIT: `close_price >= limit_price`일 때 전량 체결
-  - 조건 미충족 시 주문은 `APPROVED` 상태로 미체결 유지 (fill/position 변화 없음)
-  - 참고: 과거의 "승인 직후 50% 체결" 단순 정책은 현재 코드에서 사용하지 않음
-- 감사 추적
-  - 주문별 요청/체결/잔량은 `orders.quantity`, `orders.filled_quantity`, `orders.remaining_quantity`로 조회
-  - 체결 이력은 `fill`의 다중 레코드로 복원
-  - 포트폴리오 이력은 `portfolio_snapshot` 시계열로 조회
-
-## 9. Portfolio Analytics Policy (MVP)
-
-- 데이터 소스: `position` + 종목별 최신 `market_price.close_price`
-- 스냅샷 단위: `strategy_run_id` 별 시점 스냅샷
-- 지표
-  - `total_market_value`: 순수량 * 최신가격 합계
-  - `unrealized_pnl`: 순수량 * (최신가격 - 평균단가) 합계
-  - `realized_pnl`: SELL fill에 대해 `qty * (sellPrice - 매도 직전 평균단가)` 누적
-  - `total_pnl`: `unrealized_pnl + realized_pnl`
-  - `return_rate`: `total_pnl / total_cost_basis * 100` (cost basis 0이면 0)
-- 생성 방식
-  - 체결 발생 시 자동 생성
-  - `POST /dashboard/portfolio-snapshots/refresh`로 수동 일괄 갱신 가능
-  - 계산 로직은 `RealizedPnlCalculator` 컴포넌트로 분리해 유지보수/테스트를 단순화
-
-## 10. Web Progress Dashboard
-
-### Endpoints
-
-- `GET /` : 진행상황 UI
-- `GET /dashboard/overview?limit=20` : 주문/리스크/체결/포지션 집계
-- `POST /dashboard/portfolio-snapshots/refresh` : 포트폴리오 스냅샷 일괄 갱신
-- `POST /orders` : 주문 생성
-
-### Dashboard Purpose
-
-- 현재 구현 상태를 사람이 즉시 검증 가능한 형태로 제공
-- 주문 생성 -> 리스크 판정 -> 체결 -> 포지션 반영까지 한 화면에서 추적
-
-
+- 포트폴리오 지표는 현재 `position + latest market_price + fill history` 기준 MVP 계산이다.
+- SELL 주문은 종목 노출 감소 방향으로 평가되도록 signed exposure 기준으로 리스크 계산한다.
+- 숏 포지션 회계 정책은 아직 단순화되어 있으므로 고급 포트폴리오 분석 단계에서 보완이 필요하다.
 
 ## 11. Documentation Index
 
 - [System Architecture](docs/system-architecture.md)
 - [MVP Scope and Status](docs/mvp.md)
 - [ERD Draft](docs/erd-draft.md)
+- [AI Handover Analysis](docs/ai-handover-analysis.md)
+- [Repository Deep Analysis](docs/Repository%20Deep%20Analysis)
