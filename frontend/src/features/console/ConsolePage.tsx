@@ -52,7 +52,7 @@ export function ConsolePage() {
   const { token, role, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<ConsoleTab>('Overview');
   const [message, setMessage] = useState('JWT를 발급한 뒤 운영 콘솔을 사용할 수 있습니다.');
-  const [credentials, setCredentials] = useState({ username: 'admin', password: 'admin123!' });
+  const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [orderForm, setOrderForm] = useState<CreateOrderFormState>(initialForm);
 
   const overviewQuery = useQuery({
@@ -180,7 +180,7 @@ export function ConsolePage() {
           <h1>인증된 사용자용 운영 콘솔</h1>
           <p>JWT를 발급하면 실시간 운영 상태, 주문 입력, 리스크/감사, 포트폴리오 패널을 사용할 수 있습니다.</p>
         </section>
-        <SectionCard title="Inline Login" subtitle="기본 계정: admin/admin123!, trader/trader123!, viewer/viewer123!">
+        <SectionCard title="Inline Login" subtitle="운영용 계정이 설정된 환경에서만 토큰을 발급할 수 있습니다.">
           <form
             className="auth-form"
             onSubmit={(event) => {

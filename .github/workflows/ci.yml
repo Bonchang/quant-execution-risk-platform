@@ -50,13 +50,13 @@ jobs:
       - name: Install Python dependencies
         working-directory: python-research
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
       - name: Run Python tests
         working-directory: python-research
         env:
           PYTHONPATH: src
-        run: python -m unittest discover -s tests -v
+        run: python3 -m unittest discover -s tests -v
 
   build-smoke:
     runs-on: ubuntu-latest
@@ -85,9 +85,9 @@ jobs:
       - name: Python package smoke check
         working-directory: python-research
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .
-          python -m qerp_research.run_backtest --help
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+          python3 -m qerp_research.run_backtest --help
       - name: Compose app smoke check
         run: |
           docker compose -f compose.yml up --build -d
@@ -99,16 +99,25 @@ jobs:
           done
           curl -fsS http://localhost:8080/
           curl -fsS http://localhost:8080/discover
-          curl -fsS http://localhost:8080/stocks/DEMO_AAPL || curl -fsS http://localhost:8080/stocks/AAPL
+          curl -fsS http://localhost:8080/stocks/AAPL
+          curl -fsS http://localhost:8080/quant
+          curl -fsS http://localhost:8080/profile
           curl -fsS http://localhost:8080/app/home
-          TOKEN=$(curl -fsS -X POST http://localhost:8080/auth/token -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123!"}' | python -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
-          curl -fsS -X POST http://localhost:8080/dashboard/seed-demo -H "Authorization: Bearer $TOKEN"
-          VIEWER_TOKEN=$(curl -fsS -X POST http://localhost:8080/auth/token -H "Content-Type: application/json" -d '{"username":"viewer","password":"viewer123!"}' | python -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
-          curl -fsS http://localhost:8080/app/home
-          curl -fsS http://localhost:8080/app/stocks/DEMO_AAPL
-          curl -fsS http://localhost:8080/app/portfolio -H "Authorization: Bearer $VIEWER_TOKEN"
-          curl -fsS http://localhost:8080/app/orders -H "Authorization: Bearer $VIEWER_TOKEN"
-          curl -fsS http://localhost:8080/market-data/quotes -H "Authorization: Bearer $VIEWER_TOKEN"
+          GUEST_TOKEN=$(curl -fsS -X POST http://localhost:8080/app/auth/guest | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          curl -fsS http://localhost:8080/app/stocks/AAPL -H "Authorization: Bearer $GUEST_TOKEN"
+          curl -fsS http://localhost:8080/app/me -H "Authorization: Bearer $GUEST_TOKEN"
+          curl -fsS http://localhost:8080/app/portfolio -H "Authorization: Bearer $GUEST_TOKEN"
+          curl -fsS http://localhost:8080/app/orders -H "Authorization: Bearer $GUEST_TOKEN"
+          ORDER_ID=$(curl -fsS -X POST http://localhost:8080/app/orders \
+            -H "Authorization: Bearer $GUEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"symbol":"AAPL","side":"BUY","quantity":"1.000000","orderType":"MARKET","timeInForce":"DAY"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          curl -fsS http://localhost:8080/app/orders/$ORDER_ID -H "Authorization: Bearer $GUEST_TOKEN"
+          curl -fsS http://localhost:8080/app/portfolio -H "Authorization: Bearer $GUEST_TOKEN"
+          curl -fsS http://localhost:8080/portfolio/orders/$ORDER_ID
+          ADMIN_TOKEN=$(curl -fsS -X POST http://localhost:8080/auth/token -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123!"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          curl -fsS -X POST http://localhost:8080/dashboard/seed-demo -H "Authorization: Bearer $ADMIN_TOKEN"
+          curl -fsS http://localhost:8080/market-data/quotes -H "Authorization: Bearer $ADMIN_TOKEN"
       - name: Compose shutdown
         if: always()
         run: docker compose -f compose.yml down -v

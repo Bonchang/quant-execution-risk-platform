@@ -35,8 +35,8 @@ public class AppExperienceService {
     private final MarketDataStatusService marketDataStatusService;
     private final MarketDataProperties marketDataProperties;
 
-    public HomeScreenResponse loadHome() {
-        HomeScreenResponse.AssetSummary assetSummary = loadHomeAssetSummary();
+    public HomeScreenResponse loadHome(Long accountId) {
+        HomeScreenResponse.AssetSummary assetSummary = loadHomeAssetSummary(accountId);
         MarketDataHealthResponse health = marketHealth();
         HomeScreenResponse.MarketConnection marketConnection = new HomeScreenResponse.MarketConnection(
                 health.status(),
@@ -49,6 +49,7 @@ public class AppExperienceService {
         List<HomeScreenResponse.Highlight> highlights = buildHighlights(assetSummary, marketConnection, latestRun);
 
         return new HomeScreenResponse(
+                true,
                 assetSummary,
                 marketConnection,
                 highlights,
@@ -94,7 +95,7 @@ public class AppExperienceService {
         );
     }
 
-    public StockDetailResponse loadStock(String symbol) {
+    public StockDetailResponse loadStock(String symbol, Long accountId) {
         StockDetailResponse.StockHeader stock = jdbcTemplate.query(
                 """
                 SELECT i.id,
@@ -150,14 +151,14 @@ public class AppExperienceService {
                 stock,
                 loadPriceSeries(stock.instrumentId()),
                 buildQuantInsight(stock.symbol(), researchDetail),
-                buildRiskSummary(stock),
-                loadTradeContext(stock.instrumentId()),
-                loadRecentOrdersForSymbol(stock.symbol()),
-                loadRecentExecutionsForSymbol(stock.symbol())
+                buildRiskSummary(stock, accountId),
+                loadTradeContext(accountId),
+                loadRecentOrdersForSymbol(stock.symbol(), accountId),
+                loadRecentExecutionsForSymbol(stock.symbol(), accountId)
         );
     }
 
-    public PortfolioScreenResponse loadPortfolio() {
+    public PortfolioScreenResponse loadPortfolio(Long accountId) {
         PortfolioScreenResponse.AccountState account = jdbcTemplate.query(
                 """
                 SELECT a.id,
@@ -168,8 +169,7 @@ public class AppExperienceService {
                        cb.reserved_cash
                 FROM account a
                 JOIN cash_balance cb ON cb.account_id = a.id
-                ORDER BY a.id
-                LIMIT 1
+                WHERE a.id = ?
                 """,
                 (rs, rowNum) -> new PortfolioScreenResponse.AccountState(
                         rs.getLong("id"),
@@ -178,7 +178,8 @@ public class AppExperienceService {
                         rs.getString("base_currency"),
                         rs.getBigDecimal("available_cash"),
                         rs.getBigDecimal("reserved_cash")
-                )
+                ),
+                accountId
         ).stream().findFirst().orElse(new PortfolioScreenResponse.AccountState(null, "-", "-", "USD", BigDecimal.ZERO, BigDecimal.ZERO));
 
         PortfolioScreenResponse.AssetSummary assetSummary = jdbcTemplate.query(
@@ -188,6 +189,8 @@ public class AppExperienceService {
                        ps.total_pnl,
                        ps.return_rate
                 FROM portfolio_snapshot ps
+                JOIN strategy_run sr ON sr.id = ps.strategy_run_id
+                WHERE sr.account_id = ?
                 ORDER BY ps.snapshot_at DESC, ps.id DESC
                 LIMIT 1
                 """,
@@ -202,7 +205,8 @@ public class AppExperienceService {
                             defaultDecimal(rs.getBigDecimal("return_rate")),
                             rs.getTimestamp("snapshot_at").toLocalDateTime()
                     );
-                }
+                },
+                accountId
         ).stream().findFirst().orElseGet(() -> new PortfolioScreenResponse.AssetSummary(
                 defaultDecimal(account.availableCash()).add(defaultDecimal(account.reservedCash())),
                 defaultDecimal(account.availableCash()).add(defaultDecimal(account.reservedCash())),
@@ -231,6 +235,7 @@ public class AppExperienceService {
                     LIMIT 1
                 ) mp ON true
                 WHERE p.net_quantity <> 0
+                  AND p.account_id = ?
                 ORDER BY ABS(p.net_quantity) DESC, i.symbol ASC
                 """,
                 (rs, rowNum) -> {
@@ -248,7 +253,8 @@ public class AppExperienceService {
                             marketValue,
                             unrealized
                     );
-                }
+                },
+                accountId
         );
 
         List<PortfolioScreenResponse.TrendPoint> trend = jdbcTemplate.query(
@@ -256,15 +262,18 @@ public class AppExperienceService {
                 SELECT snapshot_at,
                        total_market_value,
                        total_pnl
-                FROM portfolio_snapshot
-                ORDER BY snapshot_at DESC, id DESC
+                FROM portfolio_snapshot ps
+                JOIN strategy_run sr ON sr.id = ps.strategy_run_id
+                WHERE sr.account_id = ?
+                ORDER BY ps.snapshot_at DESC, ps.id DESC
                 LIMIT 12
                 """,
                 (rs, rowNum) -> new PortfolioScreenResponse.TrendPoint(
                         rs.getTimestamp("snapshot_at").toLocalDateTime(),
                         defaultDecimal(rs.getBigDecimal("total_market_value")).add(defaultDecimal(account.availableCash())).add(defaultDecimal(account.reservedCash())),
                         defaultDecimal(rs.getBigDecimal("total_pnl"))
-                )
+                ),
+                accountId
         ).stream().sorted(Comparator.comparing(PortfolioScreenResponse.TrendPoint::snapshotAt)).toList();
 
         List<PortfolioScreenResponse.ExecutionItem> recentExecutions = jdbcTemplate.query(
@@ -276,6 +285,8 @@ public class AppExperienceService {
                        f.filled_at
                 FROM fill f
                 JOIN instrument i ON i.id = f.instrument_id
+                JOIN orders o ON o.id = f.order_id
+                WHERE o.account_id = ?
                 ORDER BY f.filled_at DESC, f.id DESC
                 LIMIT 8
                 """,
@@ -285,15 +296,16 @@ public class AppExperienceService {
                         rs.getBigDecimal("fill_quantity"),
                         rs.getBigDecimal("fill_price"),
                         rs.getTimestamp("filled_at").toLocalDateTime()
-                )
+                ),
+                accountId
         );
 
         return new PortfolioScreenResponse(assetSummary, account, holdings, trend, recentExecutions);
     }
 
-    public OrdersScreenResponse loadOrders() {
+    public OrdersScreenResponse loadOrders(Long accountId) {
         Map<String, Long> counts = new LinkedHashMap<>();
-        jdbcTemplate.queryForList("SELECT status, COUNT(*) AS cnt FROM orders GROUP BY status")
+        jdbcTemplate.queryForList("SELECT status, COUNT(*) AS cnt FROM orders WHERE account_id = ? GROUP BY status", accountId)
                 .forEach(row -> counts.put(String.valueOf(row.get("status")), ((Number) row.get("cnt")).longValue()));
 
         List<OrdersScreenResponse.OrderItem> orders = jdbcTemplate.query(
@@ -311,6 +323,7 @@ public class AppExperienceService {
                 FROM orders o
                 JOIN instrument i ON i.id = o.instrument_id
                 JOIN account a ON a.id = o.account_id
+                WHERE o.account_id = ?
                 ORDER BY o.updated_at DESC, o.id DESC
                 LIMIT 40
                 """,
@@ -326,7 +339,8 @@ public class AppExperienceService {
                         rs.getString("account_code"),
                         rs.getTimestamp("updated_at").toLocalDateTime(),
                         "WORKING".equals(rs.getString("status"))
-                )
+                ),
+                accountId
         );
 
         return new OrdersScreenResponse(
@@ -380,7 +394,21 @@ public class AppExperienceService {
         );
     }
 
-    private HomeScreenResponse.AssetSummary loadHomeAssetSummary() {
+    private HomeScreenResponse.AssetSummary loadHomeAssetSummary(Long accountId) {
+        if (accountId == null) {
+            return new HomeScreenResponse.AssetSummary(
+                    null,
+                    "-",
+                    "게스트 세션을 시작해 주세요",
+                    "USD",
+                    BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
+                    BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
+                    BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
+                    BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
+                    BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
+                    null
+            );
+        }
         return jdbcTemplate.query(
                 """
                 SELECT a.id,
@@ -403,8 +431,7 @@ public class AppExperienceService {
                     ORDER BY ps.snapshot_at DESC, ps.id DESC
                     LIMIT 1
                 ) ps ON true
-                ORDER BY a.id
-                LIMIT 1
+                WHERE a.id = ?
                 """,
                 (rs, rowNum) -> {
                     BigDecimal cashAmount = defaultDecimal(rs.getBigDecimal("available_cash")).add(defaultDecimal(rs.getBigDecimal("reserved_cash")));
@@ -421,11 +448,12 @@ public class AppExperienceService {
                             defaultDecimal(rs.getBigDecimal("return_rate")),
                             toDateTime(rs.getTimestamp("snapshot_at"))
                     );
-                }
+                },
+                accountId
         ).stream().findFirst().orElse(new HomeScreenResponse.AssetSummary(
                 null,
                 "-",
-                "데모 계좌 없음",
+                "게스트 세션을 시작해 주세요",
                 "USD",
                 BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
                 BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP),
@@ -473,7 +501,9 @@ public class AppExperienceService {
     ) {
         HomeScreenResponse.Highlight portfolioHighlight = new HomeScreenResponse.Highlight(
                 "내 자산",
-                "총 자산 " + money(assetSummary.totalAssets()) + " / 손익 " + signedMoney(assetSummary.totalPnl()),
+                assetSummary.accountId() != null
+                        ? "총 자산 " + money(assetSummary.totalAssets()) + " / 손익 " + signedMoney(assetSummary.totalPnl())
+                        : "게스트 세션을 시작하면 나만의 paper portfolio가 생성됩니다.",
                 assetSummary.totalPnl().compareTo(BigDecimal.ZERO) >= 0 ? "positive" : "negative"
         );
         HomeScreenResponse.Highlight marketHighlight = new HomeScreenResponse.Highlight(
@@ -532,15 +562,18 @@ public class AppExperienceService {
         );
     }
 
-    private StockDetailResponse.RiskSummary buildRiskSummary(StockDetailResponse.StockHeader stock) {
-        BigDecimal availableCash = jdbcTemplate.query(
+    private StockDetailResponse.RiskSummary buildRiskSummary(StockDetailResponse.StockHeader stock, Long accountId) {
+        BigDecimal availableCash = accountId == null
+                ? BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP)
+                : jdbcTemplate.query(
                 """
                 SELECT available_cash
                 FROM cash_balance
-                ORDER BY account_id
-                LIMIT 1
+                WHERE account_id = ?
                 """,
                 (rs, rowNum) -> rs.getBigDecimal("available_cash")
+        ,
+                accountId
         ).stream().findFirst().orElse(BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP));
 
         BigDecimal askPrice = defaultDecimal(stock.askPrice());
@@ -554,12 +587,19 @@ public class AppExperienceService {
                 defaultDecimal(stock.bidPrice()),
                 maxAffordable,
                 stock.stale(),
-                stock.stale() ? "최근 quote가 오래되어 체결 가격 오차가 커질 수 있습니다." : "실시간 quote 기준으로 주문 전 점검을 통과할 수 있습니다.",
+                stock.stale()
+                        ? "최근 quote가 오래되어 체결 가격 오차가 커질 수 있습니다."
+                        : accountId == null
+                        ? "게스트 세션을 시작하면 주문 가능 현금과 예상 체결가를 개인 계좌 기준으로 계산합니다."
+                        : "실시간 quote 기준으로 주문 전 점검을 통과할 수 있습니다.",
                 "시장가 매수는 ask, 시장가 매도는 bid 기준으로 예상 체결됩니다."
         );
     }
 
-    private StockDetailResponse.TradeContext loadTradeContext(Long instrumentId) {
+    private StockDetailResponse.TradeContext loadTradeContext(Long accountId) {
+        if (accountId == null) {
+            return null;
+        }
         return jdbcTemplate.query(
                 """
                 SELECT a.id AS account_id,
@@ -570,6 +610,7 @@ public class AppExperienceService {
                 FROM strategy_run s
                 JOIN account a ON a.id = s.account_id
                 JOIN cash_balance cb ON cb.account_id = a.id
+                WHERE a.id = ?
                 ORDER BY s.run_at DESC, s.id DESC
                 LIMIT 1
                 """,
@@ -579,7 +620,8 @@ public class AppExperienceService {
                         rs.getLong("strategy_run_id"),
                         rs.getString("strategy_name"),
                         rs.getBigDecimal("available_cash")
-                )
+                ),
+                accountId
         ).stream().findFirst().orElse(null);
     }
 
@@ -600,7 +642,10 @@ public class AppExperienceService {
         ).stream().sorted(Comparator.comparing(StockDetailResponse.PricePoint::date)).toList();
     }
 
-    private List<StockDetailResponse.ActivityItem> loadRecentOrdersForSymbol(String symbol) {
+    private List<StockDetailResponse.ActivityItem> loadRecentOrdersForSymbol(String symbol, Long accountId) {
+        if (accountId == null) {
+            return List.of();
+        }
         return jdbcTemplate.query(
                 """
                 SELECT o.side,
@@ -619,6 +664,7 @@ public class AppExperienceService {
                     LIMIT 1
                 ) mp ON true
                 WHERE UPPER(i.symbol) = UPPER(?)
+                  AND o.account_id = ?
                 ORDER BY o.updated_at DESC, o.id DESC
                 LIMIT 6
                 """,
@@ -630,11 +676,15 @@ public class AppExperienceService {
                         rs.getBigDecimal("price"),
                         rs.getTimestamp("updated_at").toLocalDateTime()
                 ),
-                symbol
+                symbol,
+                accountId
         );
     }
 
-    private List<StockDetailResponse.ActivityItem> loadRecentExecutionsForSymbol(String symbol) {
+    private List<StockDetailResponse.ActivityItem> loadRecentExecutionsForSymbol(String symbol, Long accountId) {
+        if (accountId == null) {
+            return List.of();
+        }
         return jdbcTemplate.query(
                 """
                 SELECT f.fill_quantity,
@@ -642,7 +692,9 @@ public class AppExperienceService {
                        f.filled_at
                 FROM fill f
                 JOIN instrument i ON i.id = f.instrument_id
+                JOIN orders o ON o.id = f.order_id
                 WHERE UPPER(i.symbol) = UPPER(?)
+                  AND o.account_id = ?
                 ORDER BY f.filled_at DESC, f.id DESC
                 LIMIT 6
                 """,
@@ -654,7 +706,8 @@ public class AppExperienceService {
                         rs.getBigDecimal("fill_price"),
                         rs.getTimestamp("filled_at").toLocalDateTime()
                 ),
-                symbol
+                symbol,
+                accountId
         );
     }
 

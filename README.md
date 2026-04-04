@@ -1,181 +1,191 @@
-# Quant Execution Risk Platform (QERP)
+# QERP
 
-QERP는 정량 전략 시그널이 실제 주문으로 연결될 때 필요한 금융 백엔드 흐름과 퀀트 리서치 흐름을 함께 보여주기 위한 포트폴리오 프로젝트다.  
-핵심은 `전략 실행 -> 주문 생성 -> 리스크 판정 -> 체결/포지션/현금 반영 -> 포트폴리오 스냅샷 -> 리서치 아티팩트 조회`를 하나의 데모로 묶는 것이다.
+QERP는 `실시간 시세 기반 paper trading 투자앱 + 공개 퀀트 모드`를 목표로 한 포트폴리오 프로젝트다.  
+지금 기준 메인 경험은 `홈 -> 게스트 세션 시작 -> 종목 상세 -> 주문 -> 포트폴리오 -> 주문 상세` 흐름이다.
 
-현재 프론트는 `frontend/`의 React 앱이 담당하며, 운영 데모 빌드에서는 해당 산출물이 Spring Boot 정적 리소스로 패키징된다.
+백엔드는 Spring Boot가 주문, 리스크, 체결, 포지션, 현금, outbox, 시세 수집을 담당하고, 프론트는 React SPA로 일반 투자자용 경험을 제공한다. Python 리서치는 별도 패키지로 유지하되, 결과 artifact를 앱의 퀀트 화면에 연결한다.
 
-## 1. 문제 정의
+## 문제 정의
 
-현업형 정량 시스템은 단순 백테스트만으로 설명되지 않는다. 아래가 동시에 필요하다.
+정량 전략 포트폴리오는 백테스트 숫자만으로 설득력이 생기지 않는다. 실제 서비스처럼 보이려면 아래가 함께 있어야 한다.
 
-1. 주문과 포지션이 계좌 단위로 통제되는 백엔드
-2. 현금/포지션/노출 기준 리스크 차단
-3. 체결 결과와 포트폴리오 성과의 영속화
-4. 연구 결과와 운영 결과를 함께 보여주는 인터페이스
+1. 계좌와 현금 기준으로 통제되는 주문 백엔드
+2. 실시간 시세와 연결된 paper execution
+3. 체결 후 포지션, 현금, 포트폴리오 스냅샷의 일관된 반영
+4. 리서치 결과와 실제 주문 흐름을 같은 제품 안에서 보여주는 UI
 
-QERP는 이 4가지를 로컬에서 재현 가능한 수준으로 묶은 준운영형 포트폴리오다.
+QERP는 이 흐름을 `공개 가능한 데모 서비스` 수준까지 끌어올리는 것을 목표로 한다.
 
-## 2. 아키텍처
+## 아키텍처
 
-### Java Service
+### Backend
 
 - Spring Boot 3.5
 - PostgreSQL + Flyway
+- JWT 인증
+- 게스트 세션 기반 `app_user`
 - 주문/리스크/체결/포지션/현금/스냅샷 도메인
-- JWT + 역할 기반 접근 제어
-- Outbox 기반 후속 처리
+- DB outbox 기반 후속 처리
 - Micrometer + Prometheus + Actuator
-- React SPA 산출물 서빙
+- React SPA 정적 산출물 서빙
 
 ### Frontend
 
 - Vite + React + TypeScript
 - React Router + TanStack Query
 - Recharts + Plotly
-- 랜딩 / 아키텍처 / 리서치 / 운영 콘솔 / 주문 상세 화면
+- 소비자 투자앱 화면:
+  - `/`
+  - `/discover`
+  - `/stocks/:symbol`
+  - `/portfolio`
+  - `/portfolio/orders/:id`
+  - `/orders`
+  - `/quant`
+  - `/profile`
 
-### Python Research
+### Research
 
+- Python 3.11
 - `pandas`, `numpy`, `sqlalchemy`, `pyyaml`, `plotly`
-- PostgreSQL `market_price` 직접 조회
-- `volatility-targeted moving average crossover` 전략
-- 리포트/시그널/트레이드/equity curve artifact 생성
+- PostgreSQL `market_price` 조회
+- `volatility-targeted moving average crossover`
+- artifact 기반 결과 연동
 
-### 주요 운영 흐름
+## 실행 방법
 
-1. `POST /strategy-runs`
-2. `POST /orders`
-3. 리스크 평가
-   - 최대 주문 수량
-   - 계좌별 종목 노출
-   - 보유 롱 포지션 범위 내 SELL
-   - BUY 예상 현금 범위
-4. 체결 또는 `WORKING`
-5. outbox 이벤트 적재 및 스냅샷 후속 처리
-6. `/dashboard/overview`, `/research/runs`로 운영/리서치 결과 확인
-
-## 3. 실행 방법
-
-### 3.1 로컬 인프라
+### 1. 가장 빠른 실행
 
 ```bash
-docker compose -f compose.yml up -d
+docker compose up -d --build
 ```
 
 실행 후:
 
-- Java Service: [http://localhost:8080](http://localhost:8080)
+- 앱: [http://localhost:8080](http://localhost:8080)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 
-### 3.2 Java 단독 실행
+`compose.yml`은 `local` 프로필로 Java 서비스를 띄우며, 데모 시세는 `DEMO_SYNTHETIC` 모드로 자동 갱신된다.
+
+### 2. Java 단독 실행
 
 ```bash
 cd java-service
-./gradlew bootRun
+./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
-### 3.3 Frontend 개발 실행
+### 3. Frontend 개발 서버
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Vite dev server는 `http://localhost:5173`에서 동작하고, `/auth`, `/dashboard`, `/orders`, `/accounts`, `/strategy-runs`, `/research`, `/market-data` 요청을 `localhost:8080`으로 프록시한다.
+Vite dev server는 `http://localhost:5173`에서 동작하며 `/app`, `/auth`, `/dashboard`, `/orders`, `/market-data`, `/research` 등을 `localhost:8080`으로 프록시한다.
 
-### 3.4 Python 리서치 실행
+### 4. Python 리서치
 
 ```bash
 cd python-research
-python -m pip install -e .
-python -m qerp_research.run_backtest --config configs/demo_strategy.yaml --artifacts-dir artifacts
+python3 -m pip install -e .
+python3 -m qerp_research.run_backtest --config configs/demo_strategy.yaml --artifacts-dir artifacts
 ```
 
-### 3.5 기본 JWT 계정
+## 데모 시나리오
+
+### 공개 데모 시나리오
+
+1. 홈 진입
+2. `게스트로 시작`
+3. 종목 상세에서 시세와 퀀트 인사이트 확인
+4. 시장가 또는 지정가 주문
+5. `/portfolio`, `/orders`에서 결과 확인
+6. `/portfolio/orders/:id`에서 주문 상세 확인
+
+### 내부 운영 시나리오
+
+로컬 `local` 프로필에서는 아래 운영 계정도 사용할 수 있다.
 
 - `admin / admin123!`
 - `trader / trader123!`
 - `viewer / viewer123!`
 
-운영 콘솔(`/console`)에서 먼저 토큰을 발급한 뒤 API를 호출하면 된다.
+이 계정은 `/console`, `/dashboard/*`, `/market-data/*` 같은 내부 점검용 API와 화면을 검증할 때만 사용한다. 공개 배포에서는 기본 계정을 노출하지 않는 것을 전제로 한다.
 
-## 4. 데모 시나리오
+## 핵심 API
 
-### 시나리오 A. 운영 주문과 리스크 감사
+### 공개 앱 API
 
-1. `admin`으로 JWT 발급
-2. `데모 데이터 생성`
-3. `BUY MARKET` 주문 생성
-4. 대시보드에서 주문 상태, 현금 예약/정산, fill, position, snapshot, outbox 이벤트 확인
-5. `BUY LIMIT`를 시장가보다 낮게 넣어 `WORKING` 상태 확인
-6. quote 재수집 후 `WORKING` 재평가 또는 `POST /orders/{id}/cancel`로 후속 상태 확인
+- `POST /app/auth/guest`
+- `GET /app/me`
+- `GET /app/home`
+- `GET /app/discover`
+- `GET /app/stocks/{symbol}`
+- `GET /app/portfolio`
+- `GET /app/orders`
+- `GET /app/orders/{id}`
+- `POST /app/orders`
+- `POST /app/orders/{id}/cancel`
+- `GET /app/quant/overview`
+- `GET /app/quant/strategies/{runId}`
 
-### 시나리오 B. 연구 결과와 운영 흐름 연결
-
-1. Python 백테스트 실행
-2. `python-research/artifacts/<run_id>/report.json` 생성
-3. Java `/research/runs`, 대시보드 리서치 요약에서 최근 결과 확인
-4. 리서치 대상 종목으로 전략 실행과 주문 흐름 설명
-
-## 5. 기술 결정
-
-- JWT + 역할
-  - `ADMIN`, `TRADER`, `VIEWER`
-  - 조회와 주문 권한을 분리
-- `WORKING`, `CANCELED`, `EXPIRED`
-  - LIMIT 주문의 운영 상태를 더 현실적으로 표현
-- Account / CashBalance / CashLedgerEntry
-  - 현금 기반 리스크와 예약/정산 흐름을 추적
-- Outbox
-  - 주문 후속 처리와 감사 가능한 이벤트 기록을 분리
-- Research Artifact 연동
-  - Python과 Java 경계를 명확하게 유지
-
-## 6. 주요 API
+### 내부 운영 API
 
 - `POST /auth/token`
-- `GET /accounts`
-- `POST /strategy-runs`
-- `GET /strategy-runs`
-- `GET /strategy-runs/{id}`
-- `POST /orders`
-- `GET /orders`
-- `GET /orders/{id}`
-- `POST /orders/{id}/cancel`
-- `POST /orders/expire-working`
 - `GET /dashboard/overview`
 - `GET /dashboard/timeline`
-- `GET /dashboard/options`
 - `POST /dashboard/seed-demo`
 - `POST /dashboard/portfolio-snapshots/refresh`
-- `GET /research/runs`
-- `GET /research/runs/{runId}`
 - `GET /market-data/status`
 - `GET /market-data/health`
 - `GET /market-data/quotes`
 - `POST /market-data/ingest`
 
-## 7. 이 프로젝트로 증명한 역량
+## 무료 웹 배포
 
-- 금융 백엔드
-  - 주문 상태 머신, 계좌/현금 정산, DB 마이그레이션, 보안
-- 데이터 모델링
-  - 주문/체결/포지션/현금/스냅샷/outbox 모델 분리
-- 리스크 통제
-  - 현금, 노출, 보유 수량, 주문 수량 기준 차단
-- 테스트/운영성
-  - Gradle 테스트, Python 테스트, GitHub Actions, Prometheus, correlation id
-- 퀀트 리서치
-  - 전략 구현, 백테스트, 성과지표, artifact 생성 및 운영 연동
+기준 배포 조합은 `Render Free Web Service + Supabase Free Postgres`다.
 
-## 8. 문서
+원칙:
+
+- 공개 메인 경험은 `게스트 세션 기반`
+- 1차 배포는 `MARKET_DATA_ENABLED=false`
+- research artifact는 empty state 허용
+- 내부 운영 계정은 로컬/비공개 환경으로 제한
+
+상세 절차는 [Render + Supabase Free Deployment](docs/deploy/render-supabase-free.md)를 따른다.
+
+## 테스트와 운영성
+
+- Java 통합 테스트
+  - 주문/리스크/체결
+  - 게스트 세션 발급
+  - 사용자별 주문/포트폴리오 스코프
+- Frontend 테스트
+  - 권한 파싱
+  - 모드 토글
+  - 핵심 컴포넌트 렌더링
+- Compose 스모크
+  - 공개 홈
+  - 게스트 인증
+  - 주문 생성
+  - 포트폴리오 반영
+
+## 이 프로젝트로 증명하려는 역량
+
+- 금융 백엔드 설계
+- 계좌/현금/포지션 데이터 모델링
+- 주문 리스크 통제
+- 운영 가능한 시세/주문 일관성
+- 퀀트 리서치와 제품 경험 연결
+
+## 문서
 
 - [System Architecture](docs/system-architecture.md)
 - [MVP Scope and Status](docs/mvp.md)
 - [ERD Draft](docs/erd-draft.md)
 - [AI Handover Analysis](docs/ai-handover-analysis.md)
+- [Render + Supabase Free Deployment](docs/deploy/render-supabase-free.md)
 - [ADR 001 - Outbox](docs/adr/001-outbox.md)
 - [ADR 002 - No Short Selling](docs/adr/002-no-short-selling.md)
 - [ADR 003 - Research Artifacts](docs/adr/003-research-artifacts.md)

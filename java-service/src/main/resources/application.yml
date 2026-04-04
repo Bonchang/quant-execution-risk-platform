@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:qerp}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:qerp}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:postgres}}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -19,13 +19,13 @@ risk:
 execution:
   default-fill-price: 1.000000
 market-data:
-  enabled: false
+  enabled: ${MARKET_DATA_ENABLED:true}
   base-url: https://finnhub.io/api/v1
   api-key: ${FINNHUB_API_KEY:}
-  poll-ms: 5000
-  stale-threshold-seconds: 20
+  poll-ms: ${MARKET_DATA_POLL_MS:15000}
+  stale-threshold-seconds: 45
   max-instruments-per-run: 100
-  source-mode: FINNHUB_REST
+  source-mode: ${MARKET_DATA_SOURCE_MODE:DEMO_SYNTHETIC}
   bid-ask-fallback-rule: MID_SPREAD
   synthetic-spread-bps: 10.0
   execution-slippage-bps: 2.0
@@ -37,8 +37,12 @@ research:
   artifacts-path: ${RESEARCH_ARTIFACTS_PATH:../python-research/artifacts}
 security:
   jwt:
-    secret: ${JWT_SECRET:qerp-demo-secret-key-qerp-demo-secret-key}
+    secret: ${JWT_SECRET:}
     ttl-seconds: 3600
+app-user:
+  guest-initial-cash: ${APP_GUEST_INITIAL_CASH:100000.000000}
+  guest-retention-days: ${APP_GUEST_RETENTION_DAYS:7}
+  purge-poll-ms: ${APP_GUEST_PURGE_POLL_MS:3600000}
 management:
   endpoints:
     web:
@@ -49,4 +53,4 @@ management:
       probes:
         enabled: true
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${PORT:${SERVER_PORT:8080}}

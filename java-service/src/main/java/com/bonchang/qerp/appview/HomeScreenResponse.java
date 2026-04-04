@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 public record HomeScreenResponse(
+        boolean guestAvailable,
         AssetSummary assetSummary,
         MarketConnection marketConnection,
         List<Highlight> highlights,

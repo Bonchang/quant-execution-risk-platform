@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { AssetSummaryCard } from '../components/AssetSummaryCard';
 import { Badge } from '../components/Badge';
 import { InsightCard } from '../components/InsightCard';
+import { InlineAuthPanel } from '../components/InlineAuthPanel';
 import { ModeToggle } from '../components/ModeToggle';
 import { SignalStrengthBar } from '../components/SignalStrengthBar';
 import { apiClient } from '../lib/api/client';
+import { useAuth } from '../lib/auth/AuthContext';
 import { formatDateTime, formatMoney, formatPercent, metricValue } from '../lib/format';
 import { useMode } from '../lib/mode/ModeContext';
 
@@ -19,9 +21,10 @@ const toneMap = {
 
 export function HomePage() {
   const { mode } = useMode();
+  const { token, logout } = useAuth();
   const homeQuery = useQuery({
-    queryKey: ['app-home'],
-    queryFn: () => apiClient.getAppHome(),
+    queryKey: ['app-home', token],
+    queryFn: () => apiClient.getAppHome(token, logout),
     refetchInterval: 5000,
   });
 
@@ -33,7 +36,7 @@ export function HomePage() {
     return <div className="page-grid"><section className="app-panel">홈 데이터를 불러오지 못했습니다.</section></div>;
   }
 
-  const { assetSummary, marketConnection, highlights, featuredStocks, quantSpotlight } = homeQuery.data;
+  const { guestAvailable, assetSummary, marketConnection, highlights, featuredStocks, quantSpotlight } = homeQuery.data;
 
   return (
     <div className="app-stack">
@@ -86,6 +89,13 @@ export function HomePage() {
           </div>
         </section>
       </div>
+
+      {!token && guestAvailable ? (
+        <InlineAuthPanel
+          title="바로 시작하기"
+          subtitle="회원가입 없이 게스트 세션만으로 paper trading을 시작할 수 있습니다."
+        />
+      ) : null}
 
       <section className="section-block">
         <div className="panel-header">

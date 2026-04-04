@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { hasRequiredRole } from '../lib/auth/token';
 import { useAuth } from '../lib/auth/AuthContext';
@@ -13,25 +13,24 @@ function money(value: number | null | undefined) {
 
 export function OrderTicket({
   symbol,
-  instrumentId,
   bidPrice,
   askPrice,
   tradeContext,
 }: {
   symbol: string;
-  instrumentId: number;
   bidPrice: number;
   askPrice: number;
   tradeContext: StockDetailDto['tradeContext'];
 }) {
   const { token, role, logout } = useAuth();
+  const queryClient = useQueryClient();
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [quantity, setQuantity] = useState('1');
   const [limitPrice, setLimitPrice] = useState('');
   const [message, setMessage] = useState('실시간 quote 기준 예상 체결가를 안내합니다.');
 
-  const canTrade = hasRequiredRole(role, ['ROLE_ADMIN', 'ROLE_TRADER']);
+  const canTrade = hasRequiredRole(role, ['ROLE_ADMIN', 'ROLE_TRADER', 'ROLE_GUEST']);
   const quantityNumber = Number(quantity || 0);
   const referencePrice = side === 'BUY' ? askPrice : bidPrice;
   const expectedAmount = useMemo(() => quantityNumber * (orderType === 'LIMIT' && limitPrice ? Number(limitPrice) : referencePrice), [limitPrice, orderType, quantityNumber, referencePrice]);
@@ -41,28 +40,34 @@ export function OrderTicket({
       if (!token || !tradeContext) {
         throw new Error('주문 컨텍스트를 찾을 수 없습니다.');
       }
-      return apiClient.createOrder(
+      return apiClient.createConsumerOrder(
         {
-          accountId: tradeContext.accountId,
-          strategyRunId: tradeContext.strategyRunId,
-          instrumentId,
+          symbol,
           side,
           quantity,
           orderType,
           timeInForce: 'DAY',
           limitPrice: orderType === 'LIMIT' ? limitPrice : null,
-          clientOrderId: `consumer-${symbol}-${Date.now()}`,
         },
         token,
         logout,
       );
     },
-    onSuccess: () => setMessage('주문이 접수되었습니다. 내 주문 화면에서 상태를 확인하세요.'),
+    onSuccess: async () => {
+      setMessage('주문이 접수되었습니다. 내 주문과 포트폴리오에 반영되는 중입니다.');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['stock', symbol] }),
+        queryClient.invalidateQueries({ queryKey: ['consumer-orders'] }),
+        queryClient.invalidateQueries({ queryKey: ['portfolio'] }),
+        queryClient.invalidateQueries({ queryKey: ['app-home'] }),
+        queryClient.invalidateQueries({ queryKey: ['app-me'] }),
+      ]);
+    },
     onError: (error: Error) => setMessage(error.message),
   });
 
   if (!token) {
-    return <InlineAuthPanel title="주문하려면 로그인" subtitle="trader 또는 admin 계정으로 로그인하면 바로 매수/매도가 가능합니다." />;
+    return <InlineAuthPanel title="주문하려면 로그인" subtitle="게스트 세션을 시작하면 전용 paper account로 바로 매수와 매도를 시도할 수 있습니다." />;
   }
 
   if (!tradeContext) {
@@ -113,7 +118,7 @@ export function OrderTicket({
         </li>
       </ul>
       <button className="primary-button" type="button" disabled={!canTrade || createMutation.isPending} onClick={() => createMutation.mutate()}>
-        {canTrade ? '주문 실행' : 'VIEWER 계정은 주문 불가'}
+        {canTrade ? '주문 실행' : '조회 전용 세션은 주문 불가'}
       </button>
       <p className="muted">{message}</p>
     </SectionCard>

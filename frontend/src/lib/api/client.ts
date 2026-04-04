@@ -1,4 +1,5 @@
 import type {
+  AppMeDto,
   AuthTokenResponse,
   DiscoverScreenDto,
   DashboardOptionsDto,
@@ -54,14 +55,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const apiClient = {
-  getAppHome() {
-    return request<HomeScreenDto>('/app/home');
+  getAppHome(token?: string, onUnauthorized?: () => void) {
+    return request<HomeScreenDto>('/app/home', { token, onUnauthorized });
   },
   getDiscover() {
     return request<DiscoverScreenDto>('/app/discover');
   },
-  getStock(symbol: string) {
-    return request<StockDetailDto>(`/app/stocks/${symbol}`);
+  getStock(symbol: string, token?: string, onUnauthorized?: () => void) {
+    return request<StockDetailDto>(`/app/stocks/${symbol}`, { token, onUnauthorized });
   },
   getPortfolio(token: string, onUnauthorized: () => void) {
     return request<PortfolioScreenDto>('/app/portfolio', { token, onUnauthorized });
@@ -69,11 +70,31 @@ export const apiClient = {
   getConsumerOrders(token: string, onUnauthorized: () => void) {
     return request<OrdersScreenDto>('/app/orders', { token, onUnauthorized });
   },
+  getConsumerOrder(id: string, token: string, onUnauthorized: () => void) {
+    return request<OrderDetailDto>(`/app/orders/${id}`, { token, onUnauthorized });
+  },
+  createConsumerOrder(payload: Record<string, unknown>, token: string, onUnauthorized: () => void) {
+    return request('/app/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      token,
+      onUnauthorized,
+    });
+  },
+  cancelConsumerOrder(id: number, token: string, onUnauthorized: () => void) {
+    return request(`/app/orders/${id}/cancel`, { method: 'POST', token, onUnauthorized });
+  },
   getQuantOverview() {
     return request<QuantOverviewDto>('/app/quant/overview');
   },
   getQuantStrategy(runId: string) {
     return request<QuantStrategyDetailDto>(`/app/quant/strategies/${runId}`);
+  },
+  startGuestSession() {
+    return request<AuthTokenResponse>('/app/auth/guest', { method: 'POST' });
+  },
+  getMe(token: string, onUnauthorized: () => void) {
+    return request<AppMeDto>('/app/me', { token, onUnauthorized });
   },
   login(username: string, password: string) {
     return request<AuthTokenResponse>('/auth/token', {

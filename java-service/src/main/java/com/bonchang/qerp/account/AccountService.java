@@ -69,6 +69,24 @@ public class AccountService {
     }
 
     @Transactional
+    public Account createPaperAccount(String accountCode, String ownerName, BigDecimal initialCash) {
+        Account account = new Account();
+        account.setAccountCode(accountCode);
+        account.setOwnerName(ownerName);
+        account.setBaseCurrency("USD");
+        account.setCreatedAt(LocalDateTime.now());
+        Account savedAccount = accountRepository.save(account);
+
+        CashBalance balance = new CashBalance();
+        balance.setAccount(savedAccount);
+        balance.setAvailableCash(initialCash.setScale(6, RoundingMode.HALF_UP));
+        balance.setReservedCash(ZERO);
+        balance.setUpdatedAt(LocalDateTime.now());
+        cashBalanceRepository.save(balance);
+        return savedAccount;
+    }
+
+    @Transactional
     public CashBalance lockCashBalance(Long accountId) {
         return cashBalanceRepository.lockByAccountId(accountId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "cash balance not found for accountId"));

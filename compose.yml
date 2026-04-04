@@ -22,12 +22,17 @@ services:
       dockerfile: java-service/Dockerfile
     container_name: qerp-java-service
     environment:
+      SPRING_PROFILES_ACTIVE: local
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: qerp
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
       SERVER_PORT: 8080
+      JWT_SECRET: qerp-local-compose-secret-qerp-local-compose
+      MARKET_DATA_ENABLED: "true"
+      MARKET_DATA_SOURCE_MODE: DEMO_SYNTHETIC
+      MARKET_DATA_POLL_MS: 15000
       RESEARCH_ARTIFACTS_PATH: /app/artifacts
     depends_on:
       postgres:

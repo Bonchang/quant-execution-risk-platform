@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { Badge } from '../../components/Badge';
 import { DataTable } from '../../components/DataTable';
 import { SectionCard } from '../../components/SectionCard';
@@ -13,18 +13,27 @@ function money(value: number | null | undefined) {
 
 export function OrderDetailPage() {
   const { id = '' } = useParams();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { token, role, logout } = useAuth();
+  const isConsoleRoute = location.pathname.startsWith('/console/');
   const detailQuery = useQuery({
     queryKey: ['order-detail-page', id, token],
-    queryFn: () => apiClient.getOrder(id, token, logout),
+    queryFn: () => isConsoleRoute ? apiClient.getOrder(id, token, logout) : apiClient.getConsumerOrder(id, token, logout),
     enabled: Boolean(token && id),
   });
   const cancelMutation = useMutation({
-    mutationFn: () => apiClient.cancelOrder(Number(id), token, logout),
+    mutationFn: () => isConsoleRoute ? apiClient.cancelOrder(Number(id), token, logout) : apiClient.cancelConsumerOrder(Number(id), token, logout),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['order-detail-page', id, token] });
-      await queryClient.invalidateQueries({ queryKey: ['console-overview'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['order-detail-page', id, token] }),
+        queryClient.invalidateQueries({ queryKey: ['consumer-orders'] }),
+        queryClient.invalidateQueries({ queryKey: ['portfolio'] }),
+        queryClient.invalidateQueries({ queryKey: ['app-home'] }),
+        queryClient.invalidateQueries({ queryKey: ['app-me'] }),
+        queryClient.invalidateQueries({ queryKey: ['stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['console-overview'] }),
+      ]);
     },
   });
 
@@ -32,8 +41,16 @@ export function OrderDetailPage() {
     return <SectionCard title="인증 필요">주문 상세는 로그인 후 확인할 수 있습니다.</SectionCard>;
   }
 
+  if (detailQuery.isLoading) {
+    return <SectionCard title="주문 상세">주문 상세를 불러오는 중입니다.</SectionCard>;
+  }
+
+  if (detailQuery.isError || !detailQuery.data) {
+    return <SectionCard title="주문 상세">주문 상세를 불러오지 못했습니다.</SectionCard>;
+  }
+
   const detail = detailQuery.data;
-  const canCancel = detail?.status === 'WORKING' && hasRequiredRole(role, ['ROLE_ADMIN', 'ROLE_TRADER']);
+  const canCancel = detail?.status === 'WORKING' && hasRequiredRole(role, ['ROLE_ADMIN', 'ROLE_TRADER', 'ROLE_GUEST']);
 
   return (
     <div className="page-grid">

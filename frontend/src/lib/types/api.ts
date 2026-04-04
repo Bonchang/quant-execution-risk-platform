@@ -1,10 +1,37 @@
-export type Role = 'ROLE_ADMIN' | 'ROLE_TRADER' | 'ROLE_VIEWER' | '';
+export type Role = 'ROLE_ADMIN' | 'ROLE_TRADER' | 'ROLE_VIEWER' | 'ROLE_GUEST' | '';
 
 export interface AuthTokenResponse {
   accessToken: string;
   tokenType: string;
   expiresInSeconds: number;
   role: Role;
+  authType?: string;
+  userId?: number;
+  accountId?: number;
+  displayName?: string;
+  accountCode?: string;
+}
+
+export interface AppMeDto {
+  userId: number;
+  authType: string;
+  role: Role;
+  displayName: string;
+  account: {
+    accountId: number;
+    accountCode: string;
+    ownerName: string;
+    baseCurrency: string;
+    availableCash: number;
+    reservedCash: number;
+  };
+  marketConnection: {
+    status: string;
+    source: string;
+    stale: boolean;
+    staleQuoteCount: number;
+    lastQuoteReceivedAt: string | null;
+  };
 }
 
 export interface DashboardOverviewDto {
@@ -289,6 +316,7 @@ export interface MarketDataHealthDto {
 }
 
 export interface HomeScreenDto {
+  guestAvailable: boolean;
   assetSummary: {
     accountId: number | null;
     accountCode: string;

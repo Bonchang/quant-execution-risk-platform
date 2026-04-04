@@ -6,7 +6,7 @@ export const ROLE_STORAGE_KEY = 'qerp.role';
 export function decodeRoleFromJwt(token: string): Role {
   try {
     const payload = JSON.parse(atob(token.split('.')[1] ?? ''));
-    const role = Array.isArray(payload.auth) ? payload.auth[0] : payload.auth;
+    const role = Array.isArray(payload.roles) ? payload.roles[0] : payload.roles;
     return typeof role === 'string' ? (role as Role) : '';
   } catch {
     return '';

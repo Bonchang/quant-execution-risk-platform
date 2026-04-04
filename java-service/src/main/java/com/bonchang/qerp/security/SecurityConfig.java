@@ -1,6 +1,5 @@
 package com.bonchang.qerp.security;
 
-import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,11 +9,8 @@ import org.springframework.security.authentication.dao.DaoAuthenticationProvider
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -28,18 +24,12 @@ public class SecurityConfig {
     }
 
     @Bean
-    public UserDetailsService userDetailsService(PasswordEncoder passwordEncoder) {
-        return new InMemoryUserDetailsManager(
-                User.withUsername("admin").password(passwordEncoder.encode("admin123!")).roles("ADMIN").build(),
-                User.withUsername("trader").password(passwordEncoder.encode("trader123!")).roles("TRADER").build(),
-                User.withUsername("viewer").password(passwordEncoder.encode("viewer123!")).roles("VIEWER").build()
-        );
-    }
-
-    @Bean
-    public AuthenticationManager authenticationManager(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
+    public AuthenticationManager authenticationManager(
+            OpsUserDetailsService opsUserDetailsService,
+            PasswordEncoder passwordEncoder
+    ) {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
-        provider.setUserDetailsService(userDetailsService);
+        provider.setUserDetailsService(opsUserDetailsService);
         provider.setPasswordEncoder(passwordEncoder);
         return new ProviderManager(provider);
     }
@@ -60,6 +50,7 @@ public class SecurityConfig {
                                 "/discover",
                                 "/stocks/*",
                                 "/portfolio",
+                                "/portfolio/orders/*",
                                 "/orders",
                                 "/quant",
                                 "/quant/strategies/*",
@@ -71,11 +62,13 @@ public class SecurityConfig {
                                 "/console/research-link"
                         ).permitAll()
                         .requestMatchers("/auth/token").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/app/auth/guest").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/prometheus").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/research/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/app/home", "/app/discover", "/app/stocks/**", "/app/quant/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/app/portfolio", "/app/orders").hasAnyRole("ADMIN", "TRADER", "VIEWER")
+                        .requestMatchers(HttpMethod.GET, "/app/me", "/app/portfolio", "/app/orders", "/app/orders/*").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/app/orders", "/app/orders/*/cancel").authenticated()
                         .requestMatchers(HttpMethod.GET, "/dashboard/**", "/orders/**", "/accounts/**", "/strategy-runs/**", "/market-data/**").hasAnyRole("ADMIN", "TRADER", "VIEWER")
                         .requestMatchers(HttpMethod.POST, "/orders", "/orders/*/cancel", "/strategy-runs").hasAnyRole("ADMIN", "TRADER")
                         .requestMatchers(HttpMethod.POST, "/orders/expire-working", "/dashboard/seed-demo", "/dashboard/portfolio-snapshots/refresh", "/market-data/ingest").hasRole("ADMIN")

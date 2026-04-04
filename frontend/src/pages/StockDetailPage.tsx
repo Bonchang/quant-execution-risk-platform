@@ -14,15 +14,17 @@ import { QuoteHero } from '../components/QuoteHero';
 import { SectionCard } from '../components/SectionCard';
 import { SignalStrengthBar } from '../components/SignalStrengthBar';
 import { apiClient } from '../lib/api/client';
+import { useAuth } from '../lib/auth/AuthContext';
 import { formatDateTime, formatMoney, metricValue } from '../lib/format';
 import { useMode } from '../lib/mode/ModeContext';
 
 export function StockDetailPage() {
   const { symbol = '' } = useParams();
   const { mode } = useMode();
+  const { token, logout } = useAuth();
   const stockQuery = useQuery({
-    queryKey: ['stock', symbol],
-    queryFn: () => apiClient.getStock(symbol),
+    queryKey: ['stock', symbol, token],
+    queryFn: () => apiClient.getStock(symbol, token, logout),
     enabled: Boolean(symbol),
     refetchInterval: 5000,
   });
@@ -67,7 +69,6 @@ export function StockDetailPage() {
 
         <OrderTicket
           symbol={stock.symbol}
-          instrumentId={stock.instrumentId}
           bidPrice={stock.bidPrice}
           askPrice={stock.askPrice}
           tradeContext={tradeContext}
