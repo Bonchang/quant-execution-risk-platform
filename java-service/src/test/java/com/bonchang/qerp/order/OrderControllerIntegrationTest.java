@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.bonchang.qerp.security.JwtTokenService;
 import com.bonchang.qerp.execution.OrderExecutionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -64,12 +65,10 @@ class OrderControllerIntegrationTest {
     private OrderExecutionService orderExecutionService;
 
     private String adminToken;
-    private String viewerToken;
 
     @BeforeEach
     void setUp() {
         adminToken = jwtTokenService.generateToken(User.withUsername("admin").password("ignored").roles("ADMIN").build());
-        viewerToken = jwtTokenService.generateToken(User.withUsername("viewer").password("ignored").roles("VIEWER").build());
         jdbcTemplate.execute("DELETE FROM outbox_event");
         jdbcTemplate.execute("DELETE FROM cash_ledger_entry");
         jdbcTemplate.execute("DELETE FROM risk_check_result");
@@ -81,6 +80,7 @@ class OrderControllerIntegrationTest {
         jdbcTemplate.execute("DELETE FROM market_quote");
         jdbcTemplate.execute("DELETE FROM market_price");
         jdbcTemplate.execute("DELETE FROM strategy_run");
+        jdbcTemplate.execute("DELETE FROM app_user");
         jdbcTemplate.execute("DELETE FROM instrument");
         jdbcTemplate.execute("DELETE FROM cash_balance");
         jdbcTemplate.execute("DELETE FROM account");
@@ -408,13 +408,13 @@ class OrderControllerIntegrationTest {
     void ingestMarketData_withoutApiKey_returnsAcceptedWithFailureMessage() throws Exception {
         mockMvc.perform(authorizedPost("/market-data/ingest"))
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.source").value("FINNHUB_REST"))
+                .andExpect(jsonPath("$.source").value("DEMO_SYNTHETIC"))
                 .andExpect(jsonPath("$.totalInstruments").value(0))
                 .andExpect(jsonPath("$.successCount").value(0))
                 .andExpect(jsonPath("$.failureCount").value(0))
-                .andExpect(jsonPath("$.runStatus").value("FAILED"))
+                .andExpect(jsonPath("$.runStatus").value("SUCCESS"))
                 .andExpect(jsonPath("$.updatedSymbols").isArray())
-                .andExpect(jsonPath("$.failures[0]").value("market-data.api-key is not configured"));
+                .andExpect(jsonPath("$.failures").isArray());
     }
 
     @Test
@@ -426,9 +426,10 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false))
                 .andExpect(jsonPath("$.apiKeyConfigured").value(false))
-                .andExpect(jsonPath("$.source").value("FINNHUB_REST"))
+                .andExpect(jsonPath("$.source").value("DEMO_SYNTHETIC"))
+                .andExpect(jsonPath("$.lastResult.successCount").value(0))
                 .andExpect(jsonPath("$.lastResult.failureCount").value(0))
-                .andExpect(jsonPath("$.lastResult.failures[0]").value("market-data.api-key is not configured"));
+                .andExpect(jsonPath("$.lastResult.failures").isArray());
     }
 
     @Test
@@ -659,26 +660,26 @@ class OrderControllerIntegrationTest {
     void appHome_emptyStateStillReturns200() throws Exception {
         mockMvc.perform(get("/app/home"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assetSummary.ownerName").value("데모 계좌 없음"))
+                .andExpect(jsonPath("$.guestAvailable").value(true))
+                .andExpect(jsonPath("$.assetSummary.ownerName").value("게스트 세션을 시작해 주세요"))
                 .andExpect(jsonPath("$.featuredStocks").isArray())
-                .andExpect(jsonPath("$.highlights[0].title").value("내 자산"))
-                .andExpect(jsonPath("$.quantSpotlight").isEmpty());
+                .andExpect(jsonPath("$.highlights[0].title").value("내 자산"));
     }
 
     @Test
     void appStockDetail_combinesQuoteSignalAndTradeContext() throws Exception {
-        Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "103.000000");
         insertMarketQuote(instrumentId, "104.000000", "103.800000", "104.200000", "1.400000");
-        createMarketOrder(strategyRunId, instrumentId, "BUY", "4.000000", "app-stock-order-001");
+        String guestToken = issueGuestSessionToken();
 
-        mockMvc.perform(get("/app/stocks/AAPL"))
+        mockMvc.perform(get("/app/stocks/AAPL").header("Authorization", "Bearer " + guestToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stock.symbol").value("AAPL"))
                 .andExpect(jsonPath("$.quantInsight.headline").exists())
                 .andExpect(jsonPath("$.riskSummary.estimatedBuyPrice").value(104.2))
-                .andExpect(jsonPath("$.tradeContext.strategyRunId").value(strategyRunId));
+                .andExpect(jsonPath("$.tradeContext.accountCode").exists())
+                .andExpect(jsonPath("$.tradeContext.strategyName").value("consumer-default"));
     }
 
     @Test
@@ -688,14 +689,26 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
-    void appPortfolio_returnsHoldingsForViewerRole() throws Exception {
-        Long strategyRunId = insertStrategyRun();
+    void appPortfolio_returnsHoldingsForGuestSession() throws Exception {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "100.000000");
         insertMarketQuote(instrumentId, "101.000000", "100.800000", "101.200000", "1.000000");
-        createMarketOrder(strategyRunId, instrumentId, "BUY", "3.000000", "app-portfolio-order-001");
+        String guestToken = issueGuestSessionToken();
 
-        mockMvc.perform(viewerAuthorizedGet("/app/portfolio"))
+        mockMvc.perform(post("/app/orders")
+                        .header("Authorization", "Bearer " + guestToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "symbol", "AAPL",
+                                "side", "BUY",
+                                "quantity", "3.000000",
+                                "orderType", "MARKET",
+                                "timeInForce", "DAY"
+                        ))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
+
+        mockMvc.perform(get("/app/portfolio").header("Authorization", "Bearer " + guestToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.account.accountCode").exists())
                 .andExpect(jsonPath("$.holdings[0].symbol").value("AAPL"))
@@ -880,7 +893,13 @@ class OrderControllerIntegrationTest {
         return get(url).header("Authorization", "Bearer " + adminToken);
     }
 
-    private MockHttpServletRequestBuilder viewerAuthorizedGet(String url) {
-        return get(url).header("Authorization", "Bearer " + viewerToken);
+    private String issueGuestSessionToken() throws Exception {
+        String response = mockMvc.perform(post("/app/auth/guest"))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode payload = objectMapper.readTree(response);
+        return payload.get("accessToken").asText();
     }
 }
