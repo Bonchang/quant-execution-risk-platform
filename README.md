@@ -52,6 +52,235 @@ QERP는 이 흐름을 `공개 가능한 데모 서비스` 수준까지 끌어올
 - `volatility-targeted moving average crossover`
 - artifact 기반 결과 연동
 
+## 구조 다이어그램
+
+### 1. 시스템 컨텍스트
+
+```mermaid
+flowchart LR
+    Guest["게스트 사용자"] --> SPA["React SPA<br/>홈 · 탐색 · 종목 · 주문 · 포트폴리오"]
+    Ops["운영자"] --> OpsUi["내부 콘솔 / 운영 API"]
+    SPA --> PublicApi["공개 앱 API<br/>/app/*"]
+    OpsUi --> InternalApi["내부 운영 API<br/>/dashboard/* · /market-data/*"]
+    PublicApi --> Service["Spring Boot QERP"]
+    InternalApi --> Service
+    Service --> PG["PostgreSQL<br/>계좌 · 주문 · 체결 · 포지션 · 시세"]
+    Service --> Ingestion["시장데이터 수집기"]
+    Ingestion --> Source["DEMO_SYNTHETIC / Finnhub"]
+    Research["Python Research"] --> PG
+    Research --> Artifact["Research Artifacts"]
+    Service --> Artifact
+```
+
+QERP는 `공개 소비자 앱`, `내부 운영 API`, `시장데이터 수집`, `리서치 아티팩트 조회`를 하나의 Spring Boot 서비스와 PostgreSQL 중심으로 묶는 구조다.
+
+### 2. 주요 유스케이스
+
+```mermaid
+flowchart TB
+    Guest(("게스트 사용자"))
+    Admin(("운영자"))
+
+    Guest --> U1["홈 / 탐색 / 종목 조회"]
+    Guest --> U2["게스트 세션 발급"]
+    Guest --> U3["시장가 / 지정가 주문"]
+    Guest --> U4["포트폴리오 / 주문 조회"]
+    Guest --> U5["퀀트 인사이트 조회"]
+
+    Admin --> A1["데모 시드 실행"]
+    Admin --> A2["시세 수집 / 헬스 점검"]
+    Admin --> A3["내부 콘솔 검증"]
+```
+
+공개 사용자는 가입 없이 게스트 세션으로 paper trading을 체험하고, 운영자는 별도 API와 콘솔로 상태를 점검한다.
+
+### 3. 핵심 런타임 라이프사이클
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 사용자
+    participant F as React App
+    participant A as Spring Boot API
+    participant D as PostgreSQL
+    participant M as Quote Ingestion
+
+    U->>F: 게스트 시작 / 종목 상세 진입
+    F->>A: GET /app/stocks/{symbol}
+    A->>D: 최신 quote, 최근 주문, 리서치 요약 조회
+    D-->>A: 시세 + 상태
+    A-->>F: 종목 상세 응답
+
+    U->>F: 주문 제출
+    F->>A: POST /app/orders
+    A->>D: account, cash, position, quote 잠금 조회
+    A->>A: 입력 검증 -> 현금/노출 리스크
+    alt 즉시 체결 가능
+        A->>D: order, risk result, fill, position, cash, snapshot 저장
+        A->>D: outbox_event 저장
+        A-->>F: FILLED 응답
+    else 지정가 대기 또는 거절
+        A->>D: order, risk result 저장
+        A->>D: outbox_event 저장
+        A-->>F: WORKING 또는 REJECTED 응답
+    end
+
+    M->>A: quote poll / ingest
+    A->>D: market_quote upsert
+    A->>D: WORKING 주문 재평가
+```
+
+이 라이프사이클의 핵심은 `quote -> order -> risk -> execution -> position/cash -> snapshot -> outbox`가 같은 데이터 모델 안에서 일관되게 이어진다는 점이다.
+
+### 4. 주문 상태머신
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> REJECTED: 입력 또는 리스크 실패
+    CREATED --> APPROVED: 리스크 통과
+    APPROVED --> FILLED: 시장가 즉시 체결
+    APPROVED --> WORKING: 지정가 대기
+    WORKING --> FILLED: quote 조건 충족
+    WORKING --> CANCELED: 사용자 취소
+    WORKING --> EXPIRED: TIF 만료
+    FILLED --> [*]
+    REJECTED --> [*]
+    CANCELED --> [*]
+    EXPIRED --> [*]
+```
+
+공개 데모의 핵심 사용자 경험은 `FILLED`, `WORKING`, `REJECTED` 세 상태를 중심으로 보이고, 내부적으로는 `APPROVED`가 리스크 통과 지점 역할을 한다.
+
+### 5. 핵심 ERD
+
+```mermaid
+erDiagram
+    APP_USER }o--|| ACCOUNT : uses
+    ACCOUNT ||--|| CASH_BALANCE : has
+    ACCOUNT ||--o{ STRATEGY_RUN : runs
+    ACCOUNT ||--o{ ORDER : places
+    ACCOUNT ||--o{ POSITION : holds
+    STRATEGY_RUN ||--o{ ORDER : groups
+    STRATEGY_RUN ||--o{ POSITION : tracks
+    STRATEGY_RUN ||--o{ PORTFOLIO_SNAPSHOT : creates
+    INSTRUMENT ||--o{ ORDER : traded_in
+    INSTRUMENT ||--o{ FILL : filled_in
+    INSTRUMENT ||--o{ POSITION : marked_by
+    INSTRUMENT ||--o{ MARKET_QUOTE : quoted_by
+    INSTRUMENT ||--o{ MARKET_PRICE : priced_by
+    ORDER ||--o{ FILL : generates
+    ORDER ||--o{ RISK_CHECK_RESULT : checked_by
+
+    APP_USER {
+        bigint id
+        bigint account_id
+        string auth_type
+        string display_name
+        string role
+        datetime last_login_at
+    }
+
+    ACCOUNT {
+        bigint id
+        string account_code
+        string owner_name
+        string base_currency
+    }
+
+    CASH_BALANCE {
+        bigint id
+        bigint account_id
+        decimal available_cash
+        decimal reserved_cash
+        datetime updated_at
+    }
+
+    STRATEGY_RUN {
+        bigint id
+        bigint account_id
+        string strategy_name
+        datetime run_at
+        text parameters_json
+    }
+
+    ORDER {
+        bigint id
+        bigint account_id
+        bigint strategy_run_id
+        bigint instrument_id
+        string side
+        decimal quantity
+        string order_type
+        string status
+        string time_in_force
+    }
+
+    FILL {
+        bigint id
+        bigint order_id
+        bigint strategy_run_id
+        bigint instrument_id
+        decimal fill_quantity
+        decimal fill_price
+        datetime filled_at
+    }
+
+    POSITION {
+        bigint id
+        bigint account_id
+        bigint strategy_run_id
+        bigint instrument_id
+        decimal net_quantity
+        decimal average_price
+        datetime updated_at
+    }
+
+    PORTFOLIO_SNAPSHOT {
+        bigint id
+        bigint strategy_run_id
+        decimal total_market_value
+        decimal total_pnl
+        decimal return_rate
+        datetime snapshot_at
+    }
+
+    INSTRUMENT {
+        bigint id
+        string symbol
+        string name
+        string market
+    }
+
+    MARKET_QUOTE {
+        bigint id
+        bigint instrument_id
+        decimal last_price
+        decimal bid_price
+        decimal ask_price
+        datetime quote_time
+        string source
+    }
+
+    MARKET_PRICE {
+        bigint id
+        bigint instrument_id
+        date price_date
+        decimal close_price
+        decimal volume
+    }
+
+    RISK_CHECK_RESULT {
+        bigint id
+        bigint order_id
+        string rule_name
+        boolean passed
+        datetime checked_at
+    }
+```
+
+`outbox_event`는 여러 aggregate의 후속 처리 이벤트를 담는 다형적 테이블이라 ERD에서는 단순화했고, 런타임 라이프사이클에서 별도로 표현했다.
+
 ## 실행 방법
 
 ### 1. GitHub에서 내려받아 바로 실행
