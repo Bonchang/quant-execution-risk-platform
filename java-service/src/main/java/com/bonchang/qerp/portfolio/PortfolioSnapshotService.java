@@ -1,8 +1,7 @@
 package com.bonchang.qerp.portfolio;
 
 import com.bonchang.qerp.fill.FillRepository;
-import com.bonchang.qerp.market.MarketPrice;
-import com.bonchang.qerp.market.MarketPriceRepository;
+import com.bonchang.qerp.order.OrderPricingService;
 import com.bonchang.qerp.position.Position;
 import com.bonchang.qerp.position.PositionRepository;
 import com.bonchang.qerp.strategyrun.StrategyRun;
@@ -26,10 +25,10 @@ public class PortfolioSnapshotService {
 
     private final PortfolioSnapshotRepository portfolioSnapshotRepository;
     private final PositionRepository positionRepository;
-    private final MarketPriceRepository marketPriceRepository;
     private final StrategyRunRepository strategyRunRepository;
     private final FillRepository fillRepository;
     private final RealizedPnlCalculator realizedPnlCalculator;
+    private final OrderPricingService orderPricingService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -88,9 +87,7 @@ public class PortfolioSnapshotService {
     }
 
     private Optional<BigDecimal> resolveReferencePrice(Long instrumentId) {
-        return marketPriceRepository.findFirstByInstrumentIdOrderByPriceDateDescIdDesc(instrumentId)
-                .map(MarketPrice::getClosePrice)
-                .map(this::toScale);
+        return orderPricingService.resolveMarkPrice(instrumentId).map(this::toScale);
     }
 
     private BigDecimal toScale(BigDecimal value) {

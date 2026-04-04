@@ -7,6 +7,7 @@ const summaryCards = document.getElementById('summary-cards');
 const statusCards = document.getElementById('status-cards');
 const marketDataStatus = document.getElementById('marketdata-status');
 const marketDataResult = document.getElementById('marketdata-result');
+const quotesTable = document.getElementById('quotes-table');
 const accountsTable = document.getElementById('accounts-table');
 const ordersTable = document.getElementById('orders-table');
 const riskTable = document.getElementById('risk-table');
@@ -62,6 +63,10 @@ function signClass(value) {
   return '';
 }
 
+function badge(label, className = '') {
+  return `<span class="badge ${className}">${label}</span>`;
+}
+
 function renderTable(tableEl, headers, rows) {
   const head = `<thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`;
   const body = rows.length
@@ -100,6 +105,8 @@ function renderOverview(data) {
   const summary = data.summary || {};
   const portfolio = data.portfolioSummary || {};
   const research = data.researchSummary || {};
+  const quoteSummary = data.quoteSummary || {};
+  const marketHealth = data.marketDataHealth || {};
 
   const cards = [
     ['총 주문', fmt(summary.totalOrders)],
@@ -107,6 +114,8 @@ function renderOverview(data) {
     ['거절 주문', fmt(summary.rejectedOrders)],
     ['체결률', fmtPercent(summary.fillRatePercent)],
     ['거절률', fmtPercent(summary.rejectionRatePercent)],
+    ['실시간 시세 수', fmt(quoteSummary.totalQuotes)],
+    ['Stale 시세', fmt(quoteSummary.staleQuotes)],
     ['총 평가금액', fmtMoney(portfolio.totalMarketValue)],
     ['총 손익', fmtSigned(portfolio.totalPnl), signClass(portfolio.totalPnl)],
   ];
@@ -139,6 +148,7 @@ function renderOverview(data) {
   eventFeed.innerHTML = [
     data.recentOrders?.[0] ? `최근 주문 #${data.recentOrders[0].id} -> ${data.recentOrders[0].status}` : null,
     data.recentOutboxEvents?.[0] ? `최근 outbox ${data.recentOutboxEvents[0].eventType}` : null,
+    marketHealth.lastRunStatus ? `시장데이터 상태 ${marketHealth.lastRunStatus}` : null,
     research.runId ? `최신 연구 ${research.runId}` : null,
   ].filter(Boolean).map((line) => `<li>${line}</li>`).join('') || '<li>아직 이벤트 없음</li>';
 
@@ -159,6 +169,9 @@ function renderOverview(data) {
 
   renderTable(portfolioTable, ['ID', 'Account', 'StrategyRun', 'Strategy', 'SnapshotAt', 'MarketValue', 'UnrealizedPnL', 'RealizedPnL', 'TotalPnL', 'ReturnRate'],
     (data.recentPortfolioSnapshots || []).map((p) => [fmt(p.id), fmt(p.accountCode), fmt(p.strategyRunId), fmt(p.strategyName), fmtTime(p.snapshotAt), fmtMoney(p.totalMarketValue), fmtSigned(p.unrealizedPnl), fmtSigned(p.realizedPnl), fmtSigned(p.totalPnl), fmtPercent(p.returnRate)]));
+
+  renderTable(quotesTable, ['Symbol', 'Market', 'Last', 'Bid', 'Ask', 'Change%', 'Source', 'QuoteTime', 'ReceivedAt', 'Freshness'],
+    (data.recentQuotes || []).map((q) => [fmt(q.symbol), fmt(q.market), fmtMoney(q.lastPrice), fmtMoney(q.bidPrice), fmtMoney(q.askPrice), fmtPercent(q.changePercent), fmt(q.source), fmtTime(q.quoteTime), fmtTime(q.receivedAt), q.stale ? badge('STALE', 'fail') : badge('LIVE', 'pass')]));
 
   renderTable(outboxTable, ['ID', 'Aggregate', 'AggregateId', 'Event', 'Status', 'CreatedAt', 'ProcessedAt'],
     (data.recentOutboxEvents || []).map((e) => [fmt(e.id), fmt(e.aggregateType), fmt(e.aggregateId), fmt(e.eventType), fmt(e.processingStatus), fmtTime(e.createdAt), fmtTime(e.processedAt)]));
@@ -194,7 +207,11 @@ function renderMarketDataStatus(status) {
   marketDataStatus.innerHTML = [
     ['활성화', status.enabled ? 'ON' : 'OFF'],
     ['API Key', status.apiKeyConfigured ? 'SET' : 'EMPTY'],
+    ['소스', fmt(status.source)],
     ['마지막 실행', fmtTime(status.lastRunAt)],
+    ['마지막 시세 수신', fmtTime(status.lastQuoteReceivedAt)],
+    ['Stale 여부', status.stale ? 'YES' : 'NO'],
+    ['Stale 수', fmt(status.staleQuoteCount)],
     ['대상 종목수', fmt(result.totalInstruments)],
     ['성공', fmt(result.successCount)],
     ['실패', fmt(result.failureCount)],

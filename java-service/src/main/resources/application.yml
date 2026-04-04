@@ -22,8 +22,13 @@ market-data:
   enabled: false
   base-url: https://finnhub.io/api/v1
   api-key: ${FINNHUB_API_KEY:}
-  poll-ms: 60000
+  poll-ms: 5000
+  stale-threshold-seconds: 20
   max-instruments-per-run: 100
+  source-mode: FINNHUB_REST
+  bid-ask-fallback-rule: MID_SPREAD
+  synthetic-spread-bps: 10.0
+  execution-slippage-bps: 2.0
 outbox:
   poll-ms: 5000
 orders:

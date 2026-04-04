@@ -1,9 +1,11 @@
 package com.bonchang.qerp.outbox;
 
+import com.bonchang.qerp.position.PositionRepository;
 import com.bonchang.qerp.portfolio.PortfolioSnapshotService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +21,7 @@ public class OutboxEventProcessor {
 
     private final OutboxEventRepository outboxEventRepository;
     private final PortfolioSnapshotService portfolioSnapshotService;
+    private final PositionRepository positionRepository;
     private final ObjectMapper objectMapper;
 
     @Scheduled(fixedDelayString = "${outbox.poll-ms:5000}")
@@ -34,6 +37,14 @@ public class OutboxEventProcessor {
                     if (strategyRunId != null) {
                         portfolioSnapshotService.createSnapshotForStrategyRun(strategyRunId);
                     }
+                } else if ("QUOTE_UPDATED".equals(event.getEventType())) {
+                    Long instrumentId = extractLong(event.getPayloadJson(), "instrumentId");
+                    if (instrumentId != null) {
+                        List<Long> strategyRunIds = positionRepository.findDistinctStrategyRunIdsByInstrumentId(instrumentId);
+                        for (Long strategyRunId : strategyRunIds) {
+                            portfolioSnapshotService.createSnapshotForStrategyRun(strategyRunId);
+                        }
+                    }
                 }
                 event.setProcessingStatus(OutboxProcessingStatus.PROCESSED);
                 event.setProcessedAt(LocalDateTime.now());
@@ -46,10 +57,14 @@ public class OutboxEventProcessor {
     }
 
     private Long extractStrategyRunId(String payloadJson) {
+        return extractLong(payloadJson, "strategyRunId");
+    }
+
+    private Long extractLong(String payloadJson, String fieldName) {
         try {
             Map<String, Object> payload = objectMapper.readValue(payloadJson, new TypeReference<>() {
             });
-            Object value = payload.get("strategyRunId");
+            Object value = payload.get(fieldName);
             if (value == null) {
                 return null;
             }

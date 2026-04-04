@@ -25,4 +25,12 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
             @Param("strategyRunId") Long strategyRunId,
             @Param("instrumentId") Long instrumentId
     );
+
+    @Query("""
+            select distinct p.strategyRun.id
+            from Position p
+            where p.instrument.id = :instrumentId
+              and p.netQuantity <> 0
+            """)
+    List<Long> findDistinctStrategyRunIdsByInstrumentId(@Param("instrumentId") Long instrumentId);
 }

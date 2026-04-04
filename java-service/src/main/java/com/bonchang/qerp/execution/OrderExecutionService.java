@@ -15,11 +15,11 @@ import com.bonchang.qerp.position.PositionRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +34,7 @@ public class OrderExecutionService {
     private final AccountService accountService;
     private final OutboxEventService outboxEventService;
 
+    @Transactional
     public Order executeApprovedOrder(Order order) {
         if (order.getStatus() != OrderStatus.APPROVED) {
             return order;
@@ -45,9 +46,21 @@ public class OrderExecutionService {
         return executeLimitOrder(order);
     }
 
+    @Transactional
+    public int reevaluateWorkingOrdersForInstrument(Long instrumentId) {
+        int executed = 0;
+        for (Order order : orderRepository.findByStatusAndInstrumentIdOrderByIdAsc(OrderStatus.WORKING, instrumentId)) {
+            Order updated = executeWorkingLimitOrder(order);
+            if (updated.getStatus() == OrderStatus.FILLED) {
+                executed++;
+            }
+        }
+        return executed;
+    }
+
     private Order executeMarketOrder(Order order) {
         BigDecimal fillPrice = orderPricingService.resolveExecutionPriceOrDefault(order);
-        List<BigDecimal> plan = marketExecutionPlan(order);
+        List<BigDecimal> plan = List.of(sanitizeScale(order.getRemainingQuantity()));
         if (plan.isEmpty()) {
             order.setUpdatedAt(LocalDateTime.now());
             Order saved = orderRepository.save(order);
@@ -68,8 +81,15 @@ public class OrderExecutionService {
         return savedOrder;
     }
 
+    private Order executeWorkingLimitOrder(Order order) {
+        if (order.getStatus() != OrderStatus.WORKING) {
+            return order;
+        }
+        return executeLimitOrder(order);
+    }
+
     private Order executeLimitOrder(Order order) {
-        Optional<BigDecimal> currentPrice = orderPricingService.resolveLatestMarketPrice(order);
+        Optional<BigDecimal> currentPrice = orderPricingService.resolveLimitReferencePrice(order);
         if (currentPrice.isEmpty() || !isExecutableLimitOrder(order, currentPrice.get())) {
             order.setStatus(OrderStatus.WORKING);
             order.setUpdatedAt(LocalDateTime.now());
@@ -92,24 +112,6 @@ public class OrderExecutionService {
         return savedOrder;
     }
 
-    private List<BigDecimal> marketExecutionPlan(Order order) {
-        BigDecimal remaining = sanitizeScale(order.getRemainingQuantity());
-        if (remaining.compareTo(ZERO) <= 0) {
-            return List.of();
-        }
-
-        List<BigDecimal> chunks = new ArrayList<>();
-        BigDecimal firstChunk = remaining.divide(BigDecimal.valueOf(2), 6, RoundingMode.HALF_UP);
-        if (firstChunk.compareTo(ZERO) > 0) {
-            chunks.add(firstChunk);
-        }
-        BigDecimal secondChunk = remaining.subtract(firstChunk).setScale(6, RoundingMode.HALF_UP);
-        if (secondChunk.compareTo(ZERO) > 0) {
-            chunks.add(secondChunk);
-        }
-        return chunks;
-    }
-
     private boolean isExecutableLimitOrder(Order order, BigDecimal currentPrice) {
         BigDecimal limitPrice = sanitizeScale(order.getLimitPrice());
         if (order.getSide() == OrderSide.BUY) {
@@ -128,7 +130,7 @@ public class OrderExecutionService {
         fill.setStrategyRun(order.getStrategyRun());
         fill.setInstrument(order.getInstrument());
         fill.setFillQuantity(fillQuantity);
-        fill.setFillPrice(fillPrice);
+        fill.setFillPrice(sanitizeScale(fillPrice));
         fill.setFilledAt(LocalDateTime.now());
         fillRepository.save(fill);
 

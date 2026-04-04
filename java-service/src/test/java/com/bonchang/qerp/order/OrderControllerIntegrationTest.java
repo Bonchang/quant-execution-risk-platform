@@ -6,7 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.bonchang.qerp.security.JwtTokenService;
+import com.bonchang.qerp.execution.OrderExecutionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +44,8 @@ class OrderControllerIntegrationTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("market-data.execution-slippage-bps", () -> "0");
+        registry.add("market-data.stale-threshold-seconds", () -> "20");
     }
 
     @Autowired
@@ -55,6 +60,9 @@ class OrderControllerIntegrationTest {
     @Autowired
     private JwtTokenService jwtTokenService;
 
+    @Autowired
+    private OrderExecutionService orderExecutionService;
+
     private String adminToken;
 
     @BeforeEach
@@ -67,6 +75,8 @@ class OrderControllerIntegrationTest {
         jdbcTemplate.execute("DELETE FROM fill");
         jdbcTemplate.execute("DELETE FROM orders");
         jdbcTemplate.execute("DELETE FROM position");
+        jdbcTemplate.execute("DELETE FROM market_data_run");
+        jdbcTemplate.execute("DELETE FROM market_quote");
         jdbcTemplate.execute("DELETE FROM market_price");
         jdbcTemplate.execute("DELETE FROM strategy_run");
         jdbcTemplate.execute("DELETE FROM instrument");
@@ -108,13 +118,13 @@ class OrderControllerIntegrationTest {
                 Integer.class
         );
 
-        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(positionCount).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(snapshotCount).isEqualTo(1);
     }
 
     @Test
-    void createOrder_marketOrder_persistsMultipleFillsAndUpdatesPositionCumulatively() throws Exception {
+    void createOrder_marketOrder_persistsSingleFillAndUpdatesPosition() throws Exception {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId);
@@ -133,7 +143,7 @@ class OrderControllerIntegrationTest {
                 "SELECT COUNT(*) FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'market-multi-fill-001')",
                 Integer.class
         );
-        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(fillCount).isEqualTo(1);
 
         String netQuantity = jdbcTemplate.queryForObject(
                 "SELECT TO_CHAR(net_quantity, 'FM9999999990.000000') FROM position WHERE strategy_run_id = ? AND instrument_id = ?",
@@ -231,6 +241,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "110.000000");
+        insertMarketQuote(instrumentId, "110.000000", "109.500000", "110.500000", "1.500000");
 
         String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "LIMIT", "100.000000", "limit-buy-open-001");
 
@@ -253,6 +264,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
+        insertMarketQuote(instrumentId, "105.000000", "104.500000", "105.500000", "1.500000");
         createMarketOrder(strategyRunId, instrumentId, "BUY", "10.000000", "limit-sell-fill-buy-001");
 
         String payload = orderPayload(strategyRunId, instrumentId, "SELL", "7.000000", "LIMIT", "100.000000", "limit-sell-fill-001");
@@ -271,6 +283,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
+        insertMarketQuote(instrumentId, "105.000000", "104.500000", "105.500000", "1.500000");
 
         String payload = orderPayload(strategyRunId, instrumentId, "SELL", "7.000000", "MARKET", null, "sell-no-position-001");
 
@@ -291,6 +304,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
+        insertMarketQuote(instrumentId, "105.000000", "104.500000", "105.500000", "1.500000");
         createMarketOrder(strategyRunId, instrumentId, "BUY", "2.000000", "sell-too-much-buy-001");
 
         String payload = orderPayload(strategyRunId, instrumentId, "SELL", "5.000000", "MARKET", null, "sell-too-much-001");
@@ -321,6 +335,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "95.000000");
+        insertMarketQuote(instrumentId, "95.000000", "94.500000", "95.500000", "-1.000000");
         createMarketOrder(strategyRunId, instrumentId, "BUY", "10.000000", "limit-sell-open-buy-001");
 
         String payload = orderPayload(strategyRunId, instrumentId, "SELL", "7.000000", "LIMIT", "100.000000", "limit-sell-open-001");
@@ -391,9 +406,11 @@ class OrderControllerIntegrationTest {
     void ingestMarketData_withoutApiKey_returnsAcceptedWithFailureMessage() throws Exception {
         mockMvc.perform(authorizedPost("/market-data/ingest"))
                 .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.source").value("FINNHUB_REST"))
                 .andExpect(jsonPath("$.totalInstruments").value(0))
                 .andExpect(jsonPath("$.successCount").value(0))
                 .andExpect(jsonPath("$.failureCount").value(0))
+                .andExpect(jsonPath("$.runStatus").value("FAILED"))
                 .andExpect(jsonPath("$.updatedSymbols").isArray())
                 .andExpect(jsonPath("$.failures[0]").value("market-data.api-key is not configured"));
     }
@@ -407,6 +424,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false))
                 .andExpect(jsonPath("$.apiKeyConfigured").value(false))
+                .andExpect(jsonPath("$.source").value("FINNHUB_REST"))
                 .andExpect(jsonPath("$.lastResult.failureCount").value(0))
                 .andExpect(jsonPath("$.lastResult.failures[0]").value("market-data.api-key is not configured"));
     }
@@ -416,6 +434,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
+        insertMarketQuote(instrumentId, "106.000000", "106.000000", "106.000000", "0.900000");
 
         String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "portfolio-overview-001");
 
@@ -427,9 +446,11 @@ class OrderControllerIntegrationTest {
         mockMvc.perform(authorizedGet("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.strategyRunId").value(strategyRunId))
-                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(1050.0))
+                .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(1060.0))
                 .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value(0.0))
                 .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value(0.0))
+                .andExpect(jsonPath("$.quoteSummary.totalQuotes").value(1))
+                .andExpect(jsonPath("$.recentQuotes[0].symbol").value("AAPL"))
                 .andExpect(jsonPath("$.recentPortfolioSnapshots[0].strategyRunId").value(strategyRunId));
     }
 
@@ -438,6 +459,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
+        insertMarketQuote(instrumentId, "105.000000", "105.000000", "105.000000", "0.900000");
 
         String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "portfolio-refresh-001");
 
@@ -446,7 +468,7 @@ class OrderControllerIntegrationTest {
                         .content(payload))
                 .andExpect(status().isCreated());
 
-        insertMarketPriceTomorrow(instrumentId, "120.000000");
+        insertMarketQuote(instrumentId, "120.000000", "120.000000", "120.000000", "2.500000");
 
         mockMvc.perform(authorizedPost("/dashboard/portfolio-snapshots/refresh"))
                 .andExpect(status().isOk())
@@ -465,6 +487,7 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "100.000000");
+        insertMarketQuote(instrumentId, "100.000000", "100.000000", "100.000000", "0.500000");
 
         String buyPayload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "realized-buy-001");
         mockMvc.perform(authorizedPost("/orders")
@@ -473,7 +496,7 @@ class OrderControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("FILLED"));
 
-        insertMarketPriceTomorrow(instrumentId, "120.000000");
+        insertMarketQuote(instrumentId, "120.000000", "120.000000", "120.000000", "3.500000");
 
         String sellPayload = orderPayload(strategyRunId, instrumentId, "SELL", "4.000000", "LIMIT", "110.000000", "realized-sell-001");
         mockMvc.perform(authorizedPost("/orders")
@@ -488,6 +511,65 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value(120.0))
                 .andExpect(jsonPath("$.portfolioSummary.totalPnl").value(200.0))
                 .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(720.0));
+    }
+
+    @Test
+    void createOrder_marketBuy_usesLatestAskQuotePrice() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+        insertMarketQuote(instrumentId, "101.000000", "100.800000", "101.200000", "1.100000");
+
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "5.000000", "MARKET", null, "quote-buy-001");
+
+        mockMvc.perform(authorizedPost("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FILLED"));
+
+        BigDecimal fillPrice = jdbcTemplate.queryForObject(
+                "SELECT fill_price FROM fill WHERE order_id = (SELECT id FROM orders WHERE client_order_id = 'quote-buy-001')",
+                BigDecimal.class
+        );
+        org.assertj.core.api.Assertions.assertThat(fillPrice).isEqualByComparingTo("101.200000");
+    }
+
+    @Test
+    void workingLimitOrder_isReevaluatedAfterQuoteUpdate() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "110.000000");
+        insertMarketQuote(instrumentId, "110.000000", "109.500000", "110.500000", "1.100000");
+
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "5.000000", "LIMIT", "100.000000", "working-reprice-001");
+
+        mockMvc.perform(authorizedPost("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("WORKING"));
+
+        insertMarketQuote(instrumentId, "99.500000", "99.200000", "99.800000", "-0.500000");
+        orderExecutionService.reevaluateWorkingOrdersForInstrument(instrumentId);
+
+        mockMvc.perform(authorizedGet("/orders/" + findOrderId("working-reprice-001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FILLED"))
+                .andExpect(jsonPath("$.filledQuantity").value(5.0))
+                .andExpect(jsonPath("$.remainingQuantity").value(0.0));
+    }
+
+    @Test
+    void marketDataHealth_marksStaleQuotes() throws Exception {
+        Long instrumentId = insertInstrument();
+        insertMarketQuote(instrumentId, "100.000000", "99.500000", "100.500000", "0.100000", "2026-04-04T00:00:00");
+
+        mockMvc.perform(authorizedGet("/market-data/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DEGRADED"))
+                .andExpect(jsonPath("$.staleQuoteCount").value(1))
+                .andExpect(jsonPath("$.staleSymbols[0]").value("AAPL"));
     }
 
     private Long insertStrategyRun() {
@@ -561,6 +643,68 @@ class OrderControllerIntegrationTest {
                 instrumentId,
                 new java.math.BigDecimal(closePrice)
         );
+    }
+
+    private void insertMarketQuote(Long instrumentId, String lastPrice, String bidPrice, String askPrice, String changePercent) {
+        insertMarketQuote(instrumentId, lastPrice, bidPrice, askPrice, changePercent, null);
+    }
+
+    private void insertMarketQuote(
+            Long instrumentId,
+            String lastPrice,
+            String bidPrice,
+            String askPrice,
+            String changePercent,
+            String receivedAtIso
+    ) {
+        if (receivedAtIso == null) {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO market_quote(instrument_id, quote_time, last_price, bid_price, ask_price, change_percent, source, received_at)
+                    VALUES (?, NOW(), ?, ?, ?, ?, 'TEST', NOW())
+                    ON CONFLICT (instrument_id) DO UPDATE
+                        SET quote_time = EXCLUDED.quote_time,
+                            last_price = EXCLUDED.last_price,
+                            bid_price = EXCLUDED.bid_price,
+                            ask_price = EXCLUDED.ask_price,
+                            change_percent = EXCLUDED.change_percent,
+                            source = EXCLUDED.source,
+                            received_at = EXCLUDED.received_at
+                    """,
+                    instrumentId,
+                    new BigDecimal(lastPrice),
+                    new BigDecimal(bidPrice),
+                    new BigDecimal(askPrice),
+                    new BigDecimal(changePercent)
+            );
+            return;
+        }
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO market_quote(instrument_id, quote_time, last_price, bid_price, ask_price, change_percent, source, received_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'TEST', ?)
+                ON CONFLICT (instrument_id) DO UPDATE
+                    SET quote_time = EXCLUDED.quote_time,
+                        last_price = EXCLUDED.last_price,
+                        bid_price = EXCLUDED.bid_price,
+                        ask_price = EXCLUDED.ask_price,
+                        change_percent = EXCLUDED.change_percent,
+                        source = EXCLUDED.source,
+                        received_at = EXCLUDED.received_at
+                """,
+                instrumentId,
+                java.sql.Timestamp.valueOf(LocalDateTime.parse(receivedAtIso)),
+                new BigDecimal(lastPrice),
+                new BigDecimal(bidPrice),
+                new BigDecimal(askPrice),
+                new BigDecimal(changePercent),
+                java.sql.Timestamp.valueOf(LocalDateTime.parse(receivedAtIso))
+        );
+    }
+
+    private Long findOrderId(String clientOrderId) {
+        return jdbcTemplate.queryForObject("SELECT id FROM orders WHERE client_order_id = ?", Long.class, clientOrderId);
     }
 
     private void createMarketOrder(Long strategyRunId, Long instrumentId, String side, String quantity, String clientOrderId)

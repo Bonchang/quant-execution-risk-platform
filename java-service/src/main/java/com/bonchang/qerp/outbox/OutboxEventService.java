@@ -28,9 +28,17 @@ public class OutboxEventService {
         payload.put("remainingQuantity", order.getRemainingQuantity());
         payload.put("updatedAt", order.getUpdatedAt());
 
+        publishEvent("ORDER", order.getId(), eventType, payload);
+    }
+
+    public void publishMarketDataEvent(String aggregateType, Long aggregateId, String eventType, Map<String, Object> payload) {
+        publishEvent(aggregateType, aggregateId, eventType, payload);
+    }
+
+    public void publishEvent(String aggregateType, Long aggregateId, String eventType, Map<String, Object> payload) {
         OutboxEvent event = new OutboxEvent();
-        event.setAggregateType("ORDER");
-        event.setAggregateId(order.getId());
+        event.setAggregateType(aggregateType);
+        event.setAggregateId(aggregateId);
         event.setEventType(eventType);
         event.setPayloadJson(serialize(payload));
         event.setCreatedAt(LocalDateTime.now());

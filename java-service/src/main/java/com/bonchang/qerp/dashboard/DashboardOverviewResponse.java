@@ -9,6 +9,8 @@ public record DashboardOverviewResponse(
         Summary summary,
         PortfolioSummary portfolioSummary,
         ResearchSummary researchSummary,
+        QuoteSummary quoteSummary,
+        MarketDataHealthItem marketDataHealth,
         Map<String, Long> statusCounts,
         List<AccountSummaryItem> accountSummaries,
         List<RecentOrderItem> recentOrders,
@@ -16,6 +18,7 @@ public record DashboardOverviewResponse(
         List<FillItem> recentFills,
         List<PositionItem> positions,
         List<PortfolioSnapshotItem> recentPortfolioSnapshots,
+        List<RecentQuoteItem> recentQuotes,
         List<OutboxEventItem> recentOutboxEvents
 ) {
 
@@ -126,6 +129,41 @@ public record DashboardOverviewResponse(
             String instrumentSymbol,
             String generatedAt,
             Map<String, Object> metrics
+    ) {
+    }
+
+    public record QuoteSummary(
+            long totalQuotes,
+            long staleQuotes,
+            LocalDateTime lastQuoteReceivedAt,
+            String source
+    ) {
+    }
+
+    public record MarketDataHealthItem(
+            String status,
+            boolean enabled,
+            boolean apiKeyConfigured,
+            String source,
+            LocalDateTime lastRunAt,
+            String lastRunStatus,
+            LocalDateTime lastQuoteReceivedAt,
+            long staleQuoteCount
+    ) {
+    }
+
+    public record RecentQuoteItem(
+            Long instrumentId,
+            String symbol,
+            String market,
+            BigDecimal lastPrice,
+            BigDecimal bidPrice,
+            BigDecimal askPrice,
+            BigDecimal changePercent,
+            String source,
+            LocalDateTime quoteTime,
+            LocalDateTime receivedAt,
+            boolean stale
     ) {
     }
 

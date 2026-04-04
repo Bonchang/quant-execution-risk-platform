@@ -2,6 +2,9 @@ package com.bonchang.qerp.dashboard;
 
 import com.bonchang.qerp.account.Account;
 import com.bonchang.qerp.account.AccountService;
+import com.bonchang.qerp.marketdata.MarketDataHealthResponse;
+import com.bonchang.qerp.marketdata.MarketDataProperties;
+import com.bonchang.qerp.marketdata.MarketDataStatusService;
 import com.bonchang.qerp.portfolio.PortfolioSnapshotService;
 import com.bonchang.qerp.research.ResearchArtifactService;
 import com.bonchang.qerp.research.ResearchRunSummaryResponse;
@@ -27,24 +30,31 @@ public class DashboardService {
     private final PortfolioSnapshotService portfolioSnapshotService;
     private final AccountService accountService;
     private final ResearchArtifactService researchArtifactService;
+    private final MarketDataStatusService marketDataStatusService;
+    private final MarketDataProperties marketDataProperties;
 
     public DashboardOverviewResponse loadOverview(int limit) {
         Map<String, Long> statusCounts = loadStatusCounts();
         DashboardOverviewResponse.Summary summary = buildSummary(statusCounts);
         DashboardOverviewResponse.PortfolioSummary portfolioSummary = loadLatestPortfolioSummary();
         DashboardOverviewResponse.ResearchSummary researchSummary = loadLatestResearchSummary();
+        DashboardOverviewResponse.QuoteSummary quoteSummary = loadQuoteSummary();
+        DashboardOverviewResponse.MarketDataHealthItem marketDataHealth = loadMarketDataHealth();
         List<DashboardOverviewResponse.AccountSummaryItem> accountSummaries = loadAccountSummaries();
         List<DashboardOverviewResponse.RecentOrderItem> recentOrders = loadRecentOrders(limit);
         List<DashboardOverviewResponse.RiskCheckItem> recentRiskChecks = loadRecentRiskChecks(limit);
         List<DashboardOverviewResponse.FillItem> recentFills = loadRecentFills(limit);
         List<DashboardOverviewResponse.PositionItem> positions = loadPositions(limit);
         List<DashboardOverviewResponse.PortfolioSnapshotItem> recentPortfolioSnapshots = loadRecentPortfolioSnapshots(limit);
+        List<DashboardOverviewResponse.RecentQuoteItem> recentQuotes = loadRecentQuotes(limit);
         List<DashboardOverviewResponse.OutboxEventItem> recentOutboxEvents = loadRecentOutboxEvents(limit);
 
         return new DashboardOverviewResponse(
                 summary,
                 portfolioSummary,
                 researchSummary,
+                quoteSummary,
+                marketDataHealth,
                 statusCounts,
                 accountSummaries,
                 recentOrders,
@@ -52,6 +62,7 @@ public class DashboardService {
                 recentFills,
                 positions,
                 recentPortfolioSnapshots,
+                recentQuotes,
                 recentOutboxEvents
         );
     }
@@ -154,6 +165,22 @@ public class DashboardService {
                 Date.valueOf(today),
                 instrumentId,
                 Date.valueOf(today)
+        );
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO market_quote(instrument_id, quote_time, last_price, bid_price, ask_price, change_percent, source, received_at)
+                VALUES (?, NOW(), 187.500000, 187.406250, 187.593750, 0.850000, 'DASHBOARD_SEED', NOW())
+                ON CONFLICT (instrument_id) DO UPDATE
+                    SET quote_time = EXCLUDED.quote_time,
+                        last_price = EXCLUDED.last_price,
+                        bid_price = EXCLUDED.bid_price,
+                        ask_price = EXCLUDED.ask_price,
+                        change_percent = EXCLUDED.change_percent,
+                        source = EXCLUDED.source,
+                        received_at = EXCLUDED.received_at
+                """,
+                instrumentId
         );
 
         Long strategyRunId = jdbcTemplate.queryForObject(
@@ -489,6 +516,80 @@ public class DashboardService {
                 latest.instrumentSymbol(),
                 latest.generatedAt(),
                 latest.metrics()
+        );
+    }
+
+    private DashboardOverviewResponse.QuoteSummary loadQuoteSummary() {
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                """
+                SELECT COUNT(*) AS total_quotes,
+                       COALESCE(SUM(CASE WHEN received_at < ? THEN 1 ELSE 0 END), 0) AS stale_quotes,
+                       MAX(received_at) AS last_quote_received_at,
+                       MAX(source) AS source
+                FROM market_quote
+                """,
+                java.sql.Timestamp.valueOf(LocalDateTime.now().minusSeconds(Math.max(1L, marketDataProperties.getStaleThresholdSeconds())))
+        );
+        return new DashboardOverviewResponse.QuoteSummary(
+                ((Number) row.get("total_quotes")).longValue(),
+                ((Number) row.get("stale_quotes")).longValue(),
+                row.get("last_quote_received_at") != null
+                        ? ((java.sql.Timestamp) row.get("last_quote_received_at")).toLocalDateTime()
+                        : null,
+                (String) row.get("source")
+        );
+    }
+
+    private DashboardOverviewResponse.MarketDataHealthItem loadMarketDataHealth() {
+        MarketDataHealthResponse response = marketDataStatusService.health(
+                marketDataProperties.isEnabled(),
+                marketDataProperties.getApiKey() != null && !marketDataProperties.getApiKey().isBlank()
+        );
+        return new DashboardOverviewResponse.MarketDataHealthItem(
+                response.status(),
+                response.enabled(),
+                response.apiKeyConfigured(),
+                response.source(),
+                response.lastRunAt(),
+                response.lastRunStatus(),
+                response.lastQuoteReceivedAt(),
+                response.staleQuoteCount()
+        );
+    }
+
+    private List<DashboardOverviewResponse.RecentQuoteItem> loadRecentQuotes(int limit) {
+        return jdbcTemplate.query(
+                """
+                SELECT mq.instrument_id,
+                       i.symbol,
+                       i.market,
+                       mq.last_price,
+                       mq.bid_price,
+                       mq.ask_price,
+                       mq.change_percent,
+                       mq.source,
+                       mq.quote_time,
+                       mq.received_at
+                FROM market_quote mq
+                JOIN instrument i ON i.id = mq.instrument_id
+                ORDER BY mq.received_at DESC, mq.id DESC
+                LIMIT ?
+                """,
+                (rs, rowNum) -> new DashboardOverviewResponse.RecentQuoteItem(
+                        rs.getLong("instrument_id"),
+                        rs.getString("symbol"),
+                        rs.getString("market"),
+                        rs.getBigDecimal("last_price"),
+                        rs.getBigDecimal("bid_price"),
+                        rs.getBigDecimal("ask_price"),
+                        rs.getBigDecimal("change_percent"),
+                        rs.getString("source"),
+                        rs.getTimestamp("quote_time").toLocalDateTime(),
+                        rs.getTimestamp("received_at").toLocalDateTime(),
+                        rs.getTimestamp("received_at").toLocalDateTime()
+                                .isBefore(LocalDateTime.now().minusSeconds(Math.max(1L, marketDataProperties.getStaleThresholdSeconds())))
+                ),
+                limit
         );
     }
 }

@@ -33,6 +33,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Optional<Order> findById(Long id);
 
+    List<Order> findByStatusAndInstrumentIdOrderByIdAsc(OrderStatus status, Long instrumentId);
+
     List<Order> findByStatusAndTimeInForceAndExpiresAtBefore(
             OrderStatus status,
             TimeInForce timeInForce,
