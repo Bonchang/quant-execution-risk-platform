@@ -55,11 +55,27 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/index.html", "/assets/**", "/favicon.svg").permitAll()
-                        .requestMatchers("/architecture", "/research", "/research/*", "/console", "/console/orders/*", "/console/research-link").permitAll()
+                        .requestMatchers(
+                                "/architecture",
+                                "/discover",
+                                "/stocks/*",
+                                "/portfolio",
+                                "/orders",
+                                "/quant",
+                                "/quant/strategies/*",
+                                "/profile",
+                                "/research",
+                                "/research/*",
+                                "/console",
+                                "/console/orders/*",
+                                "/console/research-link"
+                        ).permitAll()
                         .requestMatchers("/auth/token").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/prometheus").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/research/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/app/home", "/app/discover", "/app/stocks/**", "/app/quant/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/app/portfolio", "/app/orders").hasAnyRole("ADMIN", "TRADER", "VIEWER")
                         .requestMatchers(HttpMethod.GET, "/dashboard/**", "/orders/**", "/accounts/**", "/strategy-runs/**", "/market-data/**").hasAnyRole("ADMIN", "TRADER", "VIEWER")
                         .requestMatchers(HttpMethod.POST, "/orders", "/orders/*/cancel", "/strategy-runs").hasAnyRole("ADMIN", "TRADER")
                         .requestMatchers(HttpMethod.POST, "/orders/expire-working", "/dashboard/seed-demo", "/dashboard/portfolio-snapshots/refresh", "/market-data/ingest").hasRole("ADMIN")

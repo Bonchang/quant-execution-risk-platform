@@ -287,3 +287,240 @@ export interface MarketDataHealthDto {
   staleSymbols: string[];
   recentFailures: string[];
 }
+
+export interface HomeScreenDto {
+  assetSummary: {
+    accountId: number | null;
+    accountCode: string;
+    ownerName: string;
+    baseCurrency: string;
+    totalAssets: number;
+    investedAmount: number;
+    cashAmount: number;
+    totalPnl: number;
+    returnRate: number;
+    snapshotAt: string | null;
+  };
+  marketConnection: {
+    status: string;
+    source: string;
+    stale: boolean;
+    staleQuoteCount: number;
+    lastQuoteReceivedAt: string | null;
+  };
+  highlights: {
+    title: string;
+    body: string;
+    tone: string;
+  }[];
+  featuredStocks: {
+    symbol: string;
+    name: string;
+    market: string;
+    lastPrice: number;
+    changePercent: number;
+    stale: boolean;
+    reason: string;
+  }[];
+  quantSpotlight: {
+    runId: string;
+    strategyName: string;
+    instrumentSymbol: string;
+    generatedAt: string;
+    metrics: Record<string, unknown>;
+    signalHeadline: string;
+    signalStrength: number;
+  } | null;
+}
+
+export interface DiscoverScreenDto {
+  marketSummary: {
+    marketStatus: string;
+    liveQuoteCount: number;
+    staleQuoteCount: number;
+    lastQuoteReceivedAt: string | null;
+    source: string;
+    topMoverSymbol: string | null;
+    topMoverChangePercent: number | null;
+  };
+  stocks: {
+    instrumentId: number;
+    symbol: string;
+    name: string;
+    market: string;
+    lastPrice: number;
+    bidPrice: number;
+    askPrice: number;
+    changePercent: number;
+    stale: boolean;
+  }[];
+}
+
+export interface StockDetailDto {
+  stock: {
+    instrumentId: number;
+    symbol: string;
+    name: string;
+    market: string;
+    lastPrice: number;
+    bidPrice: number;
+    askPrice: number;
+    changePercent: number;
+    stale: boolean;
+    receivedAt: string | null;
+    marketStatus: string;
+  };
+  priceSeries: {
+    date: string;
+    closePrice: number;
+  }[];
+  quantInsight: {
+    strategyName: string;
+    headline: string;
+    summary: string;
+    trendLabel: string;
+    volatilityLabel: string;
+    signalStrength: number;
+    metrics: Record<string, unknown>;
+    reasons: string[];
+  };
+  riskSummary: {
+    availableCash: number;
+    estimatedBuyPrice: number;
+    estimatedSellPrice: number;
+    maxAffordableQuantity: number;
+    staleQuote: boolean;
+    staleMessage: string;
+    executionHint: string;
+  };
+  tradeContext: {
+    accountId: number;
+    accountCode: string;
+    strategyRunId: number;
+    strategyName: string;
+    availableCash: number;
+  } | null;
+  recentOrders: ActivityItemDto[];
+  recentExecutions: ActivityItemDto[];
+}
+
+export interface ActivityItemDto {
+  type: string;
+  title: string;
+  status: string;
+  quantity: number;
+  price: number | null;
+  occurredAt: string;
+}
+
+export interface PortfolioScreenDto {
+  assetSummary: {
+    totalAssets: number;
+    cashAmount: number;
+    investedAmount: number;
+    totalPnl: number;
+    returnRate: number;
+    snapshotAt: string | null;
+  };
+  account: {
+    accountId: number | null;
+    accountCode: string;
+    ownerName: string;
+    baseCurrency: string;
+    availableCash: number;
+    reservedCash: number;
+  };
+  holdings: {
+    symbol: string;
+    strategyName: string;
+    netQuantity: number;
+    averagePrice: number;
+    lastPrice: number;
+    marketValue: number;
+    unrealizedPnl: number;
+  }[];
+  assetTrend: {
+    snapshotAt: string;
+    totalAssets: number;
+    totalPnl: number;
+  }[];
+  recentExecutions: {
+    orderId: number;
+    symbol: string;
+    fillQuantity: number;
+    fillPrice: number;
+    filledAt: string;
+  }[];
+}
+
+export interface OrdersScreenDto {
+  summary: {
+    totalOrders: number;
+    filledOrders: number;
+    workingOrders: number;
+    rejectedOrders: number;
+  };
+  orders: {
+    id: number;
+    symbol: string;
+    side: string;
+    status: string;
+    quantity: number;
+    filledQuantity: number;
+    limitPrice: number | null;
+    orderType: string;
+    accountCode: string;
+    updatedAt: string;
+    cancelable: boolean;
+  }[];
+}
+
+export interface QuantOverviewDto {
+  featuredInsight: {
+    runId: string;
+    strategyName: string;
+    instrumentSymbol: string;
+    generatedAt: string;
+    headline: string;
+    signalStrength: number;
+    metrics: Record<string, unknown>;
+  } | null;
+  strategies: {
+    runId: string;
+    strategyName: string;
+    instrumentSymbol: string;
+    generatedAt: string;
+    lastPrice: number | null;
+    changePercent: number | null;
+    metrics: Record<string, unknown>;
+  }[];
+}
+
+export interface QuantStrategyDetailDto {
+  runId: string;
+  strategyName: string;
+  instrumentSymbol: string;
+  generatedAt: string;
+  metrics: Record<string, unknown>;
+  config: Record<string, unknown>;
+  artifactAvailability: Record<string, boolean>;
+  equityCurveRows: Record<string, unknown>[];
+  tradeRows: Record<string, unknown>[];
+  signalRows: Record<string, unknown>[];
+  linkedInstrument: {
+    symbol: string;
+    name: string;
+    market: string;
+    lastPrice: number;
+    changePercent: number;
+    stale: boolean;
+  } | null;
+  recentOrders: {
+    orderId: number;
+    status: string;
+    side: string;
+    quantity: number;
+    limitPrice: number | null;
+    updatedAt: string;
+  }[];
+}

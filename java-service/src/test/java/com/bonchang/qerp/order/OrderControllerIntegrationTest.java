@@ -616,6 +616,58 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.tradeRows[0].trade").value(0.3));
     }
 
+    @Test
+    void appHome_isPublicAndIncludesFeaturedStocks() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "103.000000");
+        insertMarketQuote(instrumentId, "104.000000", "103.800000", "104.200000", "1.400000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "4.000000", "app-home-order-001");
+
+        mockMvc.perform(get("/app/home"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assetSummary.totalAssets").exists())
+                .andExpect(jsonPath("$.featuredStocks[0].symbol").value("AAPL"))
+                .andExpect(jsonPath("$.marketConnection.status").exists());
+    }
+
+    @Test
+    void appStockDetail_combinesQuoteSignalAndTradeContext() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "103.000000");
+        insertMarketQuote(instrumentId, "104.000000", "103.800000", "104.200000", "1.400000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "4.000000", "app-stock-order-001");
+
+        mockMvc.perform(get("/app/stocks/AAPL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stock.symbol").value("AAPL"))
+                .andExpect(jsonPath("$.quantInsight.headline").exists())
+                .andExpect(jsonPath("$.riskSummary.estimatedBuyPrice").value(104.2))
+                .andExpect(jsonPath("$.tradeContext.strategyRunId").value(strategyRunId));
+    }
+
+    @Test
+    void appPortfolio_requiresAuthentication() throws Exception {
+        mockMvc.perform(get("/app/portfolio"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void appPortfolio_returnsHoldingsForViewerRole() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+        insertMarketQuote(instrumentId, "101.000000", "100.800000", "101.200000", "1.000000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "3.000000", "app-portfolio-order-001");
+
+        mockMvc.perform(authorizedGet("/app/portfolio"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.account.accountCode").exists())
+                .andExpect(jsonPath("$.holdings[0].symbol").value("AAPL"))
+                .andExpect(jsonPath("$.assetSummary.totalAssets").exists());
+    }
+
     private Long insertStrategyRun() {
         Long accountId = insertAccount();
         return jdbcTemplate.queryForObject(

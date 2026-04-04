@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       '/auth': 'http://localhost:8080',
       '/dashboard': 'http://localhost:8080',
+      '/app': 'http://localhost:8080',
       '/orders': 'http://localhost:8080',
       '/accounts': 'http://localhost:8080',
       '/strategy-runs': 'http://localhost:8080',

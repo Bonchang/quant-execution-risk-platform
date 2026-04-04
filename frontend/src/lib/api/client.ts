@@ -1,15 +1,22 @@
 import type {
   AuthTokenResponse,
+  DiscoverScreenDto,
   DashboardOptionsDto,
   DashboardOverviewDto,
   DashboardTimelineDto,
+  HomeScreenDto,
   MarketDataHealthDto,
   MarketDataStatusDto,
   MarketQuoteDto,
+  OrdersScreenDto,
   OrderDetailDto,
   OrderSummaryDto,
+  PortfolioScreenDto,
+  QuantOverviewDto,
+  QuantStrategyDetailDto,
   ResearchRunDetailDto,
   ResearchRunSummaryDto,
+  StockDetailDto,
 } from '../types/api';
 
 interface RequestOptions extends RequestInit {
@@ -19,6 +26,9 @@ interface RequestOptions extends RequestInit {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers ?? {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
   if (options.token) {
     headers.set('Authorization', `Bearer ${options.token}`);
   }
@@ -44,6 +54,27 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const apiClient = {
+  getAppHome() {
+    return request<HomeScreenDto>('/app/home');
+  },
+  getDiscover() {
+    return request<DiscoverScreenDto>('/app/discover');
+  },
+  getStock(symbol: string) {
+    return request<StockDetailDto>(`/app/stocks/${symbol}`);
+  },
+  getPortfolio(token: string, onUnauthorized: () => void) {
+    return request<PortfolioScreenDto>('/app/portfolio', { token, onUnauthorized });
+  },
+  getConsumerOrders(token: string, onUnauthorized: () => void) {
+    return request<OrdersScreenDto>('/app/orders', { token, onUnauthorized });
+  },
+  getQuantOverview() {
+    return request<QuantOverviewDto>('/app/quant/overview');
+  },
+  getQuantStrategy(runId: string) {
+    return request<QuantStrategyDetailDto>(`/app/quant/strategies/${runId}`);
+  },
   login(username: string, password: string) {
     return request<AuthTokenResponse>('/auth/token', {
       method: 'POST',
