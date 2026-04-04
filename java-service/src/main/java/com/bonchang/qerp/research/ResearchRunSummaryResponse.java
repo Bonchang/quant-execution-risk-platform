@@ -8,6 +8,7 @@ public record ResearchRunSummaryResponse(
         String instrumentSymbol,
         String generatedAt,
         Map<String, Object> metrics,
+        Map<String, Boolean> artifactAvailability,
         String reportPath
 ) {
 }

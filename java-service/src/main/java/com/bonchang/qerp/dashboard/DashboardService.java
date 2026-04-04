@@ -67,6 +67,85 @@ public class DashboardService {
         );
     }
 
+    public DashboardTimelineResponse loadTimeline(int limit) {
+        return new DashboardTimelineResponse(
+                jdbcTemplate.query(
+                        """
+                        SELECT category,
+                               event_type,
+                               severity,
+                               title,
+                               description,
+                               subject_key,
+                               occurred_at
+                        FROM (
+                            SELECT 'ORDER' AS category,
+                                   CAST(o.status AS VARCHAR(64)) AS event_type,
+                                   CASE WHEN o.status = 'REJECTED' THEN 'ERROR' WHEN o.status = 'WORKING' THEN 'WARN' ELSE 'INFO' END AS severity,
+                                   'Order #' || o.id || ' ' || o.status AS title,
+                                   i.symbol || ' ' || CAST(o.side AS VARCHAR(16)) || ' ' || CAST(o.quantity AS VARCHAR(32)) AS description,
+                                   'order:' || o.id AS subject_key,
+                                   o.updated_at AS occurred_at
+                            FROM orders o
+                            JOIN instrument i ON i.id = o.instrument_id
+                            UNION ALL
+                            SELECT 'RISK',
+                                   r.rule_name,
+                                   CASE WHEN r.passed THEN 'INFO' ELSE 'ERROR' END,
+                                   'Risk check ' || r.rule_name,
+                                   r.message,
+                                   'order:' || r.order_id,
+                                   r.checked_at
+                            FROM risk_check_result r
+                            UNION ALL
+                            SELECT 'FILL',
+                                   'FILL',
+                                   'INFO',
+                                   'Fill #' || f.id,
+                                   i.symbol || ' @ ' || CAST(f.fill_price AS VARCHAR(32)),
+                                   'order:' || f.order_id,
+                                   f.filled_at
+                            FROM fill f
+                            JOIN instrument i ON i.id = f.instrument_id
+                            UNION ALL
+                            SELECT 'OUTBOX',
+                                   e.event_type,
+                                   CASE WHEN e.processing_status = 'FAILED' THEN 'ERROR' ELSE 'INFO' END,
+                                   e.aggregate_type || ' event',
+                                   e.processing_status,
+                                   lower(e.aggregate_type) || ':' || e.aggregate_id,
+                                   e.created_at
+                            FROM outbox_event e
+                            UNION ALL
+                            SELECT 'QUOTE',
+                                   CASE WHEN mq.received_at < ? THEN 'QUOTE_STALE' ELSE 'QUOTE_UPDATED' END,
+                                   CASE WHEN mq.received_at < ? THEN 'WARN' ELSE 'INFO' END,
+                                   'Quote ' || i.symbol,
+                                   'last=' || CAST(mq.last_price AS VARCHAR(32)) || ', bid=' || CAST(mq.bid_price AS VARCHAR(32)) || ', ask=' || CAST(mq.ask_price AS VARCHAR(32)),
+                                   'instrument:' || mq.instrument_id,
+                                   mq.received_at
+                            FROM market_quote mq
+                            JOIN instrument i ON i.id = mq.instrument_id
+                        ) timeline
+                        ORDER BY occurred_at DESC
+                        LIMIT ?
+                        """,
+                        (rs, rowNum) -> new DashboardTimelineResponse.TimelineEventItem(
+                                rs.getString("category"),
+                                rs.getString("event_type"),
+                                rs.getString("severity"),
+                                rs.getString("title"),
+                                rs.getString("description"),
+                                rs.getString("subject_key"),
+                                rs.getTimestamp("occurred_at").toLocalDateTime()
+                        ),
+                        java.sql.Timestamp.valueOf(LocalDateTime.now().minusSeconds(Math.max(1L, marketDataProperties.getStaleThresholdSeconds()))),
+                        java.sql.Timestamp.valueOf(LocalDateTime.now().minusSeconds(Math.max(1L, marketDataProperties.getStaleThresholdSeconds()))),
+                        limit
+                )
+        );
+    }
+
     public DashboardOptionsResponse loadOptions() {
         List<DashboardOptionsResponse.AccountOption> accounts = jdbcTemplate.query(
                 """

@@ -572,6 +572,50 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.staleSymbols[0]").value("AAPL"));
     }
 
+    @Test
+    void getOrder_returnsDetailShapeWithAuditCollections() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+        insertMarketQuote(instrumentId, "100.000000", "100.000000", "100.000000", "0.100000");
+
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "4.000000", "detail-order-001");
+        Long orderId = findOrderId("detail-order-001");
+
+        mockMvc.perform(authorizedGet("/orders/" + orderId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountCode").exists())
+                .andExpect(jsonPath("$.strategyName").value("mvp-strategy"))
+                .andExpect(jsonPath("$.instrumentSymbol").value("AAPL"))
+                .andExpect(jsonPath("$.fills[0].fillPrice").value(100.0))
+                .andExpect(jsonPath("$.riskChecks[0].ruleName").exists())
+                .andExpect(jsonPath("$.outboxEvents[0].eventType").exists())
+                .andExpect(jsonPath("$.cashLedgerEntries[0].entryType").exists());
+    }
+
+    @Test
+    void dashboardTimeline_returnsMixedOperationalEvents() throws Exception {
+        Long strategyRunId = insertStrategyRun();
+        Long instrumentId = insertInstrument();
+        insertMarketPrice(instrumentId, "100.000000");
+        insertMarketQuote(instrumentId, "100.000000", "100.000000", "100.000000", "0.100000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "3.000000", "timeline-order-001");
+
+        mockMvc.perform(authorizedGet("/dashboard/timeline?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.events[0].category").exists())
+                .andExpect(jsonPath("$.events[*].category").isArray());
+    }
+
+    @Test
+    void researchRunDetail_includesArtifactAvailabilityAndParsedRows() throws Exception {
+        mockMvc.perform(get("/research/runs/demo-sample"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artifactAvailability.equityCurveCsv").value(true))
+                .andExpect(jsonPath("$.equityCurveRows[0].price_date").value("2026-04-01"))
+                .andExpect(jsonPath("$.tradeRows[0].trade").value(0.3));
+    }
+
     private Long insertStrategyRun() {
         Long accountId = insertAccount();
         return jdbcTemplate.queryForObject(

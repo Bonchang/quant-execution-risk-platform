@@ -3,6 +3,7 @@ package com.bonchang.qerp.order;
 import com.bonchang.qerp.order.dto.CreateOrderRequest;
 import com.bonchang.qerp.order.dto.CreateOrderResponse;
 import com.bonchang.qerp.order.dto.ExpireOrdersResponse;
+import com.bonchang.qerp.order.dto.OrderDetailResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -35,8 +36,8 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public CreateOrderResponse getOrder(@PathVariable Long id) {
-        return orderService.getOrder(id);
+    public OrderDetailResponse getOrder(@PathVariable Long id) {
+        return orderService.getOrderDetail(id);
     }
 
     @PostMapping("/{id}/cancel")

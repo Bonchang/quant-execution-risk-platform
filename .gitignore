@@ -1,5 +1,7 @@
 .idea/
 .DS_Store
+frontend/node_modules/
+frontend/dist/
 python-research/.venv/
 python-research/**/__pycache__/
 python-research/**/*.pyc

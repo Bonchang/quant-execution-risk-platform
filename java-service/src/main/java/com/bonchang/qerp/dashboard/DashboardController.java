@@ -22,6 +22,12 @@ public class DashboardController {
         return dashboardService.loadOverview(normalized);
     }
 
+    @GetMapping("/timeline")
+    public DashboardTimelineResponse getTimeline(@RequestParam(defaultValue = "50") int limit) {
+        int normalized = Math.min(Math.max(limit, 1), 200);
+        return dashboardService.loadTimeline(normalized);
+    }
+
     @GetMapping("/options")
     public DashboardOptionsResponse getOptions() {
         return dashboardService.loadOptions();

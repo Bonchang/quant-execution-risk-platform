@@ -18,7 +18,8 @@ services:
 
   java-service:
     build:
-      context: ./java-service
+      context: .
+      dockerfile: java-service/Dockerfile
     container_name: qerp-java-service
     environment:
       DB_HOST: postgres
