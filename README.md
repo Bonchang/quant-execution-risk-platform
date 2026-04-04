@@ -101,6 +101,18 @@ python -m qerp_research.run_backtest --config configs/demo_strategy.yaml --artif
 
 운영 콘솔(`/console`)에서 먼저 토큰을 발급한 뒤 API를 호출하면 된다.
 
+### 3.6 무료 웹 배포
+
+`render.yaml` 기준으로 `Render Web Service + Supabase Free Postgres` 조합에 바로 올릴 수 있다.
+
+기본 원칙:
+
+- 1차 배포는 `MARKET_DATA_ENABLED=false`
+- `research` artifacts는 `/tmp/artifacts` empty state 허용
+- Render는 `PORT` 환경변수로 바인딩되므로 현재 설정은 그대로 배포 가능
+
+상세 절차는 [Render + Supabase Free Deployment](docs/deploy/render-supabase-free.md)를 따른다.
+
 ## 4. 데모 시나리오
 
 ### 시나리오 A. 운영 주문과 리스크 감사
@@ -176,6 +188,7 @@ python -m qerp_research.run_backtest --config configs/demo_strategy.yaml --artif
 - [MVP Scope and Status](docs/mvp.md)
 - [ERD Draft](docs/erd-draft.md)
 - [AI Handover Analysis](docs/ai-handover-analysis.md)
+- [Render + Supabase Free Deployment](docs/deploy/render-supabase-free.md)
 - [ADR 001 - Outbox](docs/adr/001-outbox.md)
 - [ADR 002 - No Short Selling](docs/adr/002-no-short-selling.md)
 - [ADR 003 - Research Artifacts](docs/adr/003-research-artifacts.md)
