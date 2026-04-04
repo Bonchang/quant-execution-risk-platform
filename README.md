@@ -54,9 +54,16 @@ QERP는 이 흐름을 `공개 가능한 데모 서비스` 수준까지 끌어올
 
 ## 실행 방법
 
-### 1. 가장 빠른 실행
+### 1. GitHub에서 내려받아 바로 실행
+
+사전 준비:
+
+- Docker Desktop 또는 Docker Engine + Docker Compose
+- 사용 가능한 포트 `8080`, `9090`, `5432`
 
 ```bash
+git clone https://github.com/Bonchang/quant-execution-risk-platform_V1.git
+cd quant-execution-risk-platform_V1
 docker compose up -d --build
 ```
 
@@ -65,16 +72,37 @@ docker compose up -d --build
 - 앱: [http://localhost:8080](http://localhost:8080)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 
+첫 진입 후 `게스트로 시작`을 누르면 바로 paper trading 데모를 체험할 수 있다.
+
+### 2. 가장 빠른 실행
+
+```bash
+docker compose up -d --build
+```
+
 `compose.yml`은 `local` 프로필로 Java 서비스를 띄우며, 데모 시세는 `DEMO_SYNTHETIC` 모드로 자동 갱신된다.
 
-### 2. Java 단독 실행
+초기화/종료:
+
+```bash
+docker compose down
+docker compose down -v
+```
+
+문제 확인:
+
+```bash
+docker compose logs -f java-service
+```
+
+### 3. Java 단독 실행
 
 ```bash
 cd java-service
 ./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
-### 3. Frontend 개발 서버
+### 4. Frontend 개발 서버
 
 ```bash
 cd frontend
@@ -84,7 +112,7 @@ npm run dev
 
 Vite dev server는 `http://localhost:5173`에서 동작하며 `/app`, `/auth`, `/dashboard`, `/orders`, `/market-data`, `/research` 등을 `localhost:8080`으로 프록시한다.
 
-### 4. Python 리서치
+### 5. Python 리서치
 
 ```bash
 cd python-research
@@ -154,6 +182,18 @@ python3 -m qerp_research.run_backtest --config configs/demo_strategy.yaml --arti
 - 내부 운영 계정은 로컬/비공개 환경으로 제한
 
 상세 절차는 [Render + Supabase Free Deployment](docs/deploy/render-supabase-free.md)를 따른다.
+
+## GitHub Releases 필요 여부
+
+로컬 실행 목적이라면 GitHub Releases에 별도 파일을 올릴 필요는 없다.
+
+이 저장소는 아래 방식으로 충분하다.
+
+- 소스코드 clone
+- `docker compose up -d --build`
+- 브라우저에서 `http://localhost:8080` 접속
+
+즉, 현재 기준 공식 배포물은 `GitHub repo + README 실행 방법 + compose.yml` 조합으로 본다.
 
 ## 테스트와 운영성
 
