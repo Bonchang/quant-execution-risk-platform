@@ -1,237 +1,158 @@
 # Quant Execution Risk Platform (QERP)
 
-QERP는 정량 전략 주문을 리스크 통제 하에서 생성, 승인, 실행하고 체결과 포지션, 포트폴리오 스냅샷까지 추적하는 백엔드 중심 플랫폼이다.
+QERP는 정량 전략 시그널이 실제 주문으로 연결될 때 필요한 금융 백엔드 흐름과 퀀트 리서치 흐름을 함께 보여주기 위한 포트폴리오 프로젝트다.  
+핵심은 `전략 실행 -> 주문 생성 -> 리스크 판정 -> 체결/포지션/현금 반영 -> 포트폴리오 스냅샷 -> 리서치 아티팩트 조회`를 하나의 데모로 묶는 것이다.
 
-현재 저장소는 Java 운영 서비스와 Python 리서치 공간을 분리한 모노레포다.
+## 1. 문제 정의
 
-## 1. System Objective
+현업형 정량 시스템은 단순 백테스트만으로 설명되지 않는다. 아래가 동시에 필요하다.
 
-핵심 목표는 아래 4가지다.
+1. 주문과 포지션이 계좌 단위로 통제되는 백엔드
+2. 현금/포지션/노출 기준 리스크 차단
+3. 체결 결과와 포트폴리오 성과의 영속화
+4. 연구 결과와 운영 결과를 함께 보여주는 인터페이스
 
-1. 전략 실행 컨텍스트(`StrategyRun`)에서 주문(`Order`)을 생성하고 영속화한다.
-2. 주문 직후 룰 기반 리스크 평가를 수행해 승인/거절을 결정한다.
-3. 승인 주문은 실행 단계로 연결하여 체결(`Fill`)과 포지션(`Position`)을 갱신한다.
-4. 체결 이후 포트폴리오 스냅샷(`PortfolioSnapshot`)을 적재하고 대시보드에서 조회 가능하게 한다.
+QERP는 이 4가지를 로컬에서 재현 가능한 수준으로 묶은 준운영형 포트폴리오다.
 
-## 2. Repository Layout
-
-```text
-quant-execution-risk-platform/
-  java-service/         # 운영 백엔드 (Spring Boot, JPA, Flyway)
-  python-research/      # 전략 연구/실험 영역
-  docs/                 # 아키텍처/범위/ERD/핸드오버 문서
-  compose.yml           # 로컬 PostgreSQL 16
-```
-
-## 3. Technology Stack
+## 2. 아키텍처
 
 ### Java Service
 
-- Java 17+
 - Spring Boot 3.5
-- Spring Web
-- Spring Data JPA
-- PostgreSQL
-- Flyway
-- Gradle
-- Lombok
-- Testcontainers
+- PostgreSQL + Flyway
+- 주문/리스크/체결/포지션/현금/스냅샷 도메인
+- JWT + 역할 기반 접근 제어
+- Outbox 기반 후속 처리
+- Micrometer + Prometheus + Actuator
 
 ### Python Research
 
-- 현재는 리서치용 placeholder 영역만 존재
+- `pandas`, `numpy`, `sqlalchemy`, `pyyaml`, `plotly`
+- PostgreSQL `market_price` 직접 조회
+- `volatility-targeted moving average crossover` 전략
+- 리포트/시그널/트레이드/equity curve artifact 생성
 
-## 4. Current Delivery Status (as of 2026-04-04)
+### 주요 운영 흐름
 
-### Delivered
+1. `POST /strategy-runs`
+2. `POST /orders`
+3. 리스크 평가
+   - 최대 주문 수량
+   - 계좌별 종목 노출
+   - 보유 롱 포지션 범위 내 SELL
+   - BUY 예상 현금 범위
+4. 체결 또는 `WORKING`
+5. outbox 이벤트 적재 및 스냅샷 후속 처리
+6. `/dashboard/overview`, `/research/runs`로 운영/리서치 결과 확인
 
-1. Spring Boot + Gradle 서비스 부트스트랩
-2. 도메인 엔티티
-   - `Instrument`
-   - `MarketPrice`
-   - `StrategyRun`
-   - `Order`
-   - `RiskCheckResult`
-   - `Fill`
-   - `Position`
-   - `PortfolioSnapshot`
-3. 주문 API
-   - `POST /orders`
-4. 리스크 엔진 및 구현 룰 2개
-   - 최대 주문 수량 한도
-   - 종목별 signed quantity exposure 한도
-5. 주문 상태 전이
-   - `CREATED -> APPROVED/REJECTED`
-   - 실행 후 `PARTIALLY_FILLED` 또는 `FILLED`
-6. 실행/체결/포지션 구현
-   - MARKET 주문은 데모 목적상 2개 fill 청크로 분할 저장
-   - LIMIT 주문은 최신 종가 기준 조건 충족 시 1회 fill
-   - 주문별 `filled_quantity`, `remaining_quantity`, `last_executed_at` 추적
-7. 포트폴리오 스냅샷
-   - 체결 시 자동 생성
-   - `POST /dashboard/portfolio-snapshots/refresh` 수동 갱신
-   - `realized_pnl`, `unrealized_pnl`, `total_pnl`, `return_rate` 계산
-8. 진행상황 웹 대시보드
-   - `/` 정적 UI
-   - `/dashboard/overview`
-   - `/dashboard/options`
-   - `/dashboard/seed-demo`
-9. 외부 시장 데이터 수집
-   - `POST /market-data/ingest`
-   - `GET /market-data/status`
-   - 설정 기반 스케줄 실행
-10. Flyway 마이그레이션
-   - `V1` core schema
-   - `V2` risk check results
-   - `V3` fill/position
-   - `V4` market price uniqueness
-   - `V5` order execution lifecycle
-   - `V6` limit price
-   - `V7` portfolio snapshot
+## 3. 실행 방법
 
-### Not Yet Delivered
+### 3.1 로컬 인프라
 
-1. 현금/계좌 기반 리스크
-2. 실거래 브로커 어댑터 및 고급 실행 정책
-3. 인증/권한
-4. 메시지 브로커 기반 비동기 파이프라인
-5. 숏 포지션/고급 실현손익 정책의 정교화
-
-## 5. Local Run
-
-### Prerequisites
-
-- Java 17 이상
-- Docker Desktop
-
-### 5.1 PostgreSQL 실행
-
-저장소 루트에서 실행:
-
-```powershell
+```bash
 docker compose -f compose.yml up -d
 ```
 
-기본 접속 정보:
+실행 후:
 
-- DB: `qerp`
-- User: `postgres`
-- Password: `postgres`
-- Port: `5432`
+- Java Service: [http://localhost:8080](http://localhost:8080)
+- Prometheus: [http://localhost:9090](http://localhost:9090)
 
-### 5.2 Java 서비스 실행
-
-PowerShell:
-
-```powershell
-cd java-service
-.\gradlew.bat bootRun
-```
-
-macOS/Linux:
+### 3.2 Java 단독 실행
 
 ```bash
 cd java-service
 ./gradlew bootRun
 ```
 
-기본 환경변수는 아래 값으로 동작한다.
+### 3.3 Python 리서치 실행
 
-- `DB_HOST=localhost`
-- `DB_PORT=5432`
-- `DB_NAME=qerp`
-- `DB_USERNAME=postgres`
-- `DB_PASSWORD=postgres`
-- `SERVER_PORT=8080`
-
-옵션:
-
-- `FINNHUB_API_KEY`를 설정하면 시장데이터 수집 API 사용 가능
-- `market-data.enabled=true`로 실행하면 스케줄 수집 활성화 가능
-
-### 5.3 테스트 실행
-
-```powershell
-cd java-service
-.\gradlew.bat test
+```bash
+cd python-research
+python -m pip install -e .
+python -m qerp_research.run_backtest --config configs/demo_strategy.yaml --artifacts-dir artifacts
 ```
 
-테스트는 Testcontainers 기반 PostgreSQL을 사용하므로 Docker가 필요하다.
+### 3.4 기본 JWT 계정
 
-### 5.4 접속 URL
+- `admin / admin123!`
+- `trader / trader123!`
+- `viewer / viewer123!`
 
-- Dashboard UI: `http://localhost:8080/`
-- Dashboard Overview API: `http://localhost:8080/dashboard/overview`
-- Market Data Status API: `http://localhost:8080/market-data/status`
+정적 UI(`/`)에서 먼저 토큰을 발급한 뒤 API를 호출하면 된다.
 
-## 6. Runtime Lifecycle
+## 4. 데모 시나리오
 
-1. 애플리케이션 시작
-2. Flyway migration 적용 (`V1` ~ `V7`)
-3. JPA schema validate
-4. API 요청 처리 시작
-5. 주문 라이프사이클
-   1. `POST /orders`
-   2. `Order(status=CREATED)` 저장
-   3. 리스크 룰 평가 및 `risk_check_result` 저장
-   4. 통과 시 `APPROVED`, 실패 시 `REJECTED`
-   5. `APPROVED` 주문은 실행 서비스로 전달
-   6. 실행 정책에 따라 1회 이상 `fill` 생성
-   7. 각 `fill`마다 `position` 갱신
-   8. 주문 상태를 `PARTIALLY_FILLED` 또는 `FILLED`로 갱신
-6. 체결 발생 시 포트폴리오 스냅샷 생성
-7. 대시보드와 조회 API에서 현재 상태 확인
+### 시나리오 A. 운영 주문과 리스크 감사
 
-## 7. High-Level Architecture
+1. `admin`으로 JWT 발급
+2. `데모 데이터 생성`
+3. `BUY MARKET` 주문 생성
+4. 대시보드에서 주문 상태, 현금 예약/정산, fill, position, snapshot, outbox 이벤트 확인
+5. `BUY LIMIT`를 시장가보다 낮게 넣어 `WORKING` 상태 확인
+6. `POST /orders/{id}/cancel` 또는 `/orders/expire-working`으로 후속 상태 확인
 
-```mermaid
-flowchart LR
-    A["Strategy Signal"] --> B["POST /orders"]
-    B --> C["Order Persist (CREATED)"]
-    C --> D["Risk Engine (Rules)"]
-    D --> E{"All Rules Pass?"}
-    E -->|No| F["Order REJECTED"]
-    E -->|Yes| G["Order APPROVED"]
-    G --> H["Execution Service"]
-    H --> I["Fill Persist"]
-    I --> J["Position Update"]
-    J --> K["Order PARTIALLY_FILLED/FILLED"]
-    I --> L["Portfolio Snapshot"]
-    C --> M["RiskCheckResult Persist"]
-    K --> N["Dashboard Overview API"]
-    F --> N
-```
+### 시나리오 B. 연구 결과와 운영 흐름 연결
 
-## 8. Main API Endpoints
+1. Python 백테스트 실행
+2. `python-research/artifacts/<run_id>/report.json` 생성
+3. Java `/research/runs`, 대시보드 리서치 요약에서 최근 결과 확인
+4. 리서치 대상 종목으로 전략 실행과 주문 흐름 설명
 
+## 5. 기술 결정
+
+- JWT + 역할
+  - `ADMIN`, `TRADER`, `VIEWER`
+  - 조회와 주문 권한을 분리
+- `WORKING`, `CANCELED`, `EXPIRED`
+  - LIMIT 주문의 운영 상태를 더 현실적으로 표현
+- Account / CashBalance / CashLedgerEntry
+  - 현금 기반 리스크와 예약/정산 흐름을 추적
+- Outbox
+  - 주문 후속 처리와 감사 가능한 이벤트 기록을 분리
+- Research Artifact 연동
+  - Python과 Java 경계를 명확하게 유지
+
+## 6. 주요 API
+
+- `POST /auth/token`
+- `GET /accounts`
+- `POST /strategy-runs`
+- `GET /strategy-runs`
+- `GET /strategy-runs/{id}`
 - `POST /orders`
-- `GET /dashboard/overview?limit=20`
+- `GET /orders`
+- `GET /orders/{id}`
+- `POST /orders/{id}/cancel`
+- `POST /orders/expire-working`
+- `GET /dashboard/overview`
 - `GET /dashboard/options`
 - `POST /dashboard/seed-demo`
 - `POST /dashboard/portfolio-snapshots/refresh`
+- `GET /research/runs`
+- `GET /research/runs/{runId}`
 - `GET /market-data/status`
 - `POST /market-data/ingest`
 
-## 9. Database Governance
+## 7. 이 프로젝트로 증명한 역량
 
-- 스키마 변경은 Flyway만 사용
-- JPA는 `ddl-auto: validate`로 매핑 검증만 수행
-- 주요 무결성
-  - `orders(strategy_run_id, client_order_id)` unique
-  - `position(strategy_run_id, instrument_id)` unique
-  - `market_price(instrument_id, price_date)` unique
-  - `fill(order_id)`는 unique 아님
+- 금융 백엔드
+  - 주문 상태 머신, 계좌/현금 정산, DB 마이그레이션, 보안
+- 데이터 모델링
+  - 주문/체결/포지션/현금/스냅샷/outbox 모델 분리
+- 리스크 통제
+  - 현금, 노출, 보유 수량, 주문 수량 기준 차단
+- 테스트/운영성
+  - Gradle 테스트, Python 테스트, GitHub Actions, Prometheus, correlation id
+- 퀀트 리서치
+  - 전략 구현, 백테스트, 성과지표, artifact 생성 및 운영 연동
 
-## 10. Notes
-
-- 포트폴리오 지표는 현재 `position + latest market_price + fill history` 기준 MVP 계산이다.
-- SELL 주문은 종목 노출 감소 방향으로 평가되도록 signed exposure 기준으로 리스크 계산한다.
-- 숏 포지션 회계 정책은 아직 단순화되어 있으므로 고급 포트폴리오 분석 단계에서 보완이 필요하다.
-
-## 11. Documentation Index
+## 8. 문서
 
 - [System Architecture](docs/system-architecture.md)
 - [MVP Scope and Status](docs/mvp.md)
 - [ERD Draft](docs/erd-draft.md)
 - [AI Handover Analysis](docs/ai-handover-analysis.md)
-- [Repository Deep Analysis](docs/Repository%20Deep%20Analysis)
+- [ADR 001 - Outbox](docs/adr/001-outbox.md)
+- [ADR 002 - No Short Selling](docs/adr/002-no-short-selling.md)
+- [ADR 003 - Research Artifacts](docs/adr/003-research-artifacts.md)

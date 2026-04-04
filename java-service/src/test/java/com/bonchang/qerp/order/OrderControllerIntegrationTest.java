@@ -5,7 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.bonchang.qerp.security.JwtTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,8 +16,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -48,8 +52,16 @@ class OrderControllerIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private JwtTokenService jwtTokenService;
+
+    private String adminToken;
+
     @BeforeEach
     void setUp() {
+        adminToken = jwtTokenService.generateToken(User.withUsername("admin").password("ignored").roles("ADMIN").build());
+        jdbcTemplate.execute("DELETE FROM outbox_event");
+        jdbcTemplate.execute("DELETE FROM cash_ledger_entry");
         jdbcTemplate.execute("DELETE FROM risk_check_result");
         jdbcTemplate.execute("DELETE FROM portfolio_snapshot");
         jdbcTemplate.execute("DELETE FROM fill");
@@ -58,6 +70,8 @@ class OrderControllerIntegrationTest {
         jdbcTemplate.execute("DELETE FROM market_price");
         jdbcTemplate.execute("DELETE FROM strategy_run");
         jdbcTemplate.execute("DELETE FROM instrument");
+        jdbcTemplate.execute("DELETE FROM cash_balance");
+        jdbcTemplate.execute("DELETE FROM account");
     }
 
     @Test
@@ -66,20 +80,14 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId);
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "client-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "client-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.accountId").value(findAccountIdByStrategyRun(strategyRunId)))
                 .andExpect(jsonPath("$.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.instrumentId").value(instrumentId))
                 .andExpect(jsonPath("$.status").value("FILLED"))
@@ -111,16 +119,9 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId);
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "11.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "market-multi-fill-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "11.000000", "MARKET", null, "market-multi-fill-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -149,21 +150,14 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId);
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "dup-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "dup-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isConflict());
@@ -175,16 +169,9 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId);
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "1500.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "risk-reject-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "1500.000000", "MARKET", null, "risk-reject-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -204,17 +191,9 @@ class OrderControllerIntegrationTest {
         createMarketOrder(strategyRunId, instrumentId, "BUY", "1000.000000", "exposure-buy-002");
         insertMarketPriceTomorrow(instrumentId, "95.000000");
 
-        String sellPayload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "SELL",
-                "quantity", "500.000000",
-                "orderType", "LIMIT",
-                "limitPrice", "90.000000",
-                "clientOrderId", "exposure-sell-001"
-        ));
+        String sellPayload = orderPayload(strategyRunId, instrumentId, "SELL", "500.000000", "LIMIT", "90.000000", "exposure-sell-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(sellPayload))
                 .andExpect(status().isCreated())
@@ -229,17 +208,9 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "LIMIT",
-                "limitPrice", "105.000000",
-                "clientOrderId", "limit-partial-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "LIMIT", "105.000000", "limit-partial-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -261,28 +232,20 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "110.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "LIMIT",
-                "limitPrice", "100.000000",
-                "clientOrderId", "limit-buy-open-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "LIMIT", "100.000000", "limit-buy-open-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.status").value("WORKING"))
                 .andExpect(jsonPath("$.filledQuantity").value(0))
                 .andExpect(jsonPath("$.remainingQuantity").value(10.0));
 
         Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
         Integer positionCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM position", Integer.class);
         org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
-        org.assertj.core.api.Assertions.assertThat(positionCount).isZero();
+        org.assertj.core.api.Assertions.assertThat(positionCount).isEqualTo(1);
     }
 
     @Test
@@ -292,17 +255,9 @@ class OrderControllerIntegrationTest {
         insertMarketPrice(instrumentId, "105.000000");
         createMarketOrder(strategyRunId, instrumentId, "BUY", "10.000000", "limit-sell-fill-buy-001");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "SELL",
-                "quantity", "7.000000",
-                "orderType", "LIMIT",
-                "limitPrice", "100.000000",
-                "clientOrderId", "limit-sell-fill-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "SELL", "7.000000", "LIMIT", "100.000000", "limit-sell-fill-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -317,16 +272,9 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "SELL",
-                "quantity", "7.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "sell-no-position-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "SELL", "7.000000", "MARKET", null, "sell-no-position-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -335,7 +283,7 @@ class OrderControllerIntegrationTest {
         Integer fillCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM fill", Integer.class);
         Integer positionCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM position", Integer.class);
         org.assertj.core.api.Assertions.assertThat(fillCount).isZero();
-        org.assertj.core.api.Assertions.assertThat(positionCount).isZero();
+        org.assertj.core.api.Assertions.assertThat(positionCount).isEqualTo(1);
     }
 
     @Test
@@ -345,16 +293,9 @@ class OrderControllerIntegrationTest {
         insertMarketPrice(instrumentId, "105.000000");
         createMarketOrder(strategyRunId, instrumentId, "BUY", "2.000000", "sell-too-much-buy-001");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "SELL",
-                "quantity", "5.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "sell-too-much-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "SELL", "5.000000", "MARKET", null, "sell-too-much-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -380,22 +321,15 @@ class OrderControllerIntegrationTest {
         Long strategyRunId = insertStrategyRun();
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "95.000000");
+        createMarketOrder(strategyRunId, instrumentId, "BUY", "10.000000", "limit-sell-open-buy-001");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "SELL",
-                "quantity", "7.000000",
-                "orderType", "LIMIT",
-                "limitPrice", "100.000000",
-                "clientOrderId", "limit-sell-open-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "SELL", "7.000000", "LIMIT", "100.000000", "limit-sell-open-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.status").value("WORKING"))
                 .andExpect(jsonPath("$.filledQuantity").value(0))
                 .andExpect(jsonPath("$.remainingQuantity").value(7.0));
     }
@@ -406,16 +340,9 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "LIMIT",
-                "clientOrderId", "limit-invalid-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "LIMIT", null, "limit-invalid-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isBadRequest())
@@ -428,17 +355,9 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "MARKET",
-                "limitPrice", "100.000000",
-                "clientOrderId", "market-invalid-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", "100.000000", "market-invalid-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isBadRequest())
@@ -451,15 +370,17 @@ class OrderControllerIntegrationTest {
         insertMarketPrice(instrumentId);
 
         String payload = objectMapper.writeValueAsString(Map.of(
+                "accountId", insertAccount(),
                 "strategyRunId", 999999L,
                 "instrumentId", instrumentId,
                 "side", "BUY",
                 "quantity", "10.000000",
                 "orderType", "MARKET",
+                "timeInForce", "DAY",
                 "clientOrderId", "bad-strategy-001"
         ));
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isBadRequest())
@@ -468,7 +389,7 @@ class OrderControllerIntegrationTest {
 
     @Test
     void ingestMarketData_withoutApiKey_returnsAcceptedWithFailureMessage() throws Exception {
-        mockMvc.perform(post("/market-data/ingest"))
+        mockMvc.perform(authorizedPost("/market-data/ingest"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.totalInstruments").value(0))
                 .andExpect(jsonPath("$.successCount").value(0))
@@ -479,10 +400,10 @@ class OrderControllerIntegrationTest {
 
     @Test
     void marketDataStatus_afterIngest_exposesLastResult() throws Exception {
-        mockMvc.perform(post("/market-data/ingest"))
+        mockMvc.perform(authorizedPost("/market-data/ingest"))
                 .andExpect(status().isAccepted());
 
-        mockMvc.perform(get("/market-data/status"))
+        mockMvc.perform(authorizedGet("/market-data/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false))
                 .andExpect(jsonPath("$.apiKeyConfigured").value(false))
@@ -496,21 +417,14 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "portfolio-overview-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "portfolio-overview-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/dashboard/overview?limit=20"))
+        mockMvc.perform(authorizedGet("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.strategyRunId").value(strategyRunId))
                 .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(1050.0))
@@ -525,27 +439,20 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "105.000000");
 
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "portfolio-refresh-001"
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "portfolio-refresh-001");
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated());
 
         insertMarketPriceTomorrow(instrumentId, "120.000000");
 
-        mockMvc.perform(post("/dashboard/portfolio-snapshots/refresh"))
+        mockMvc.perform(authorizedPost("/dashboard/portfolio-snapshots/refresh"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.strategyRunCount").value(1));
 
-        mockMvc.perform(get("/dashboard/overview?limit=20"))
+        mockMvc.perform(authorizedGet("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.totalMarketValue").value(1200.0))
                 .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value(0.0))
@@ -559,15 +466,8 @@ class OrderControllerIntegrationTest {
         Long instrumentId = insertInstrument();
         insertMarketPrice(instrumentId, "100.000000");
 
-        String buyPayload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "BUY",
-                "quantity", "10.000000",
-                "orderType", "MARKET",
-                "clientOrderId", "realized-buy-001"
-        ));
-        mockMvc.perform(post("/orders")
+        String buyPayload = orderPayload(strategyRunId, instrumentId, "BUY", "10.000000", "MARKET", null, "realized-buy-001");
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(buyPayload))
                 .andExpect(status().isCreated())
@@ -575,22 +475,14 @@ class OrderControllerIntegrationTest {
 
         insertMarketPriceTomorrow(instrumentId, "120.000000");
 
-        String sellPayload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", "SELL",
-                "quantity", "4.000000",
-                "orderType", "LIMIT",
-                "limitPrice", "110.000000",
-                "clientOrderId", "realized-sell-001"
-        ));
-        mockMvc.perform(post("/orders")
+        String sellPayload = orderPayload(strategyRunId, instrumentId, "SELL", "4.000000", "LIMIT", "110.000000", "realized-sell-001");
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(sellPayload))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("FILLED"));
 
-        mockMvc.perform(get("/dashboard/overview?limit=20"))
+        mockMvc.perform(authorizedGet("/dashboard/overview?limit=20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.portfolioSummary.realizedPnl").value(80.0))
                 .andExpect(jsonPath("$.portfolioSummary.unrealizedPnl").value(120.0))
@@ -599,14 +491,39 @@ class OrderControllerIntegrationTest {
     }
 
     private Long insertStrategyRun() {
+        Long accountId = insertAccount();
         return jdbcTemplate.queryForObject(
                 """
-                INSERT INTO strategy_run(strategy_name, run_at, parameters_json)
-                VALUES ('mvp-strategy', NOW(), '{}')
+                INSERT INTO strategy_run(account_id, strategy_name, run_at, parameters_json)
+                VALUES (?, 'mvp-strategy', NOW(), '{}')
+                RETURNING id
+                """,
+                Long.class,
+                accountId
+        );
+    }
+
+    private Long insertAccount() {
+        Long accountId = jdbcTemplate.queryForObject(
+                """
+                INSERT INTO account(account_code, owner_name, base_currency, created_at)
+                VALUES ('ACC-' || substr(md5(random()::text), 1, 8), 'Test Owner', 'USD', NOW())
                 RETURNING id
                 """,
                 Long.class
         );
+        jdbcTemplate.update(
+                """
+                INSERT INTO cash_balance(account_id, available_cash, reserved_cash, updated_at)
+                VALUES (?, 1000000.000000, 0.000000, NOW())
+                """,
+                accountId
+        );
+        return accountId;
+    }
+
+    private Long findAccountIdByStrategyRun(Long strategyRunId) {
+        return jdbcTemplate.queryForObject("SELECT account_id FROM strategy_run WHERE id = ?", Long.class, strategyRunId);
     }
 
     private Long insertInstrument() {
@@ -648,19 +565,44 @@ class OrderControllerIntegrationTest {
 
     private void createMarketOrder(Long strategyRunId, Long instrumentId, String side, String quantity, String clientOrderId)
             throws Exception {
-        String payload = objectMapper.writeValueAsString(Map.of(
-                "strategyRunId", strategyRunId,
-                "instrumentId", instrumentId,
-                "side", side,
-                "quantity", quantity,
-                "orderType", "MARKET",
-                "clientOrderId", clientOrderId
-        ));
+        String payload = orderPayload(strategyRunId, instrumentId, side, quantity, "MARKET", null, clientOrderId);
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(authorizedPost("/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("FILLED"));
+    }
+
+    private String orderPayload(
+            Long strategyRunId,
+            Long instrumentId,
+            String side,
+            String quantity,
+            String orderType,
+            String limitPrice,
+            String clientOrderId
+    ) throws Exception {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("accountId", findAccountIdByStrategyRun(strategyRunId));
+        payload.put("strategyRunId", strategyRunId);
+        payload.put("instrumentId", instrumentId);
+        payload.put("side", side);
+        payload.put("quantity", quantity);
+        payload.put("orderType", orderType);
+        payload.put("timeInForce", "DAY");
+        if (limitPrice != null) {
+            payload.put("limitPrice", limitPrice);
+        }
+        payload.put("clientOrderId", clientOrderId);
+        return objectMapper.writeValueAsString(payload);
+    }
+
+    private MockHttpServletRequestBuilder authorizedPost(String url) {
+        return post(url).header("Authorization", "Bearer " + adminToken);
+    }
+
+    private MockHttpServletRequestBuilder authorizedGet(String url) {
+        return get(url).header("Authorization", "Bearer " + adminToken);
     }
 }

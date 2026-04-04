@@ -1,5 +1,6 @@
 package com.bonchang.qerp.position;
 
+import com.bonchang.qerp.account.Account;
 import com.bonchang.qerp.instrument.Instrument;
 import com.bonchang.qerp.strategyrun.StrategyRun;
 import jakarta.persistence.Column;
@@ -34,6 +35,10 @@ public class Position {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "strategy_run_id", nullable = false)
     private StrategyRun strategyRun;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "account_id", nullable = false)
+    private Account account;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "instrument_id", nullable = false)

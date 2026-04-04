@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qerp-research"
+version = "0.1.0"
+description = "Research and backtesting toolkit for QERP"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0.0",
+    "pandas>=2.2.0",
+    "plotly>=6.0.0",
+    "psycopg[binary]>=3.2.0",
+    "pyyaml>=6.0.0",
+    "sqlalchemy>=2.0.0",
+]
+
+[project.scripts]
+qerp-backtest = "qerp_research.run_backtest:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

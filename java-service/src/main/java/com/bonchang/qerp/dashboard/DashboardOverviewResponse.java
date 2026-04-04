@@ -8,12 +8,15 @@ import java.util.Map;
 public record DashboardOverviewResponse(
         Summary summary,
         PortfolioSummary portfolioSummary,
+        ResearchSummary researchSummary,
         Map<String, Long> statusCounts,
+        List<AccountSummaryItem> accountSummaries,
         List<RecentOrderItem> recentOrders,
         List<RiskCheckItem> recentRiskChecks,
         List<FillItem> recentFills,
         List<PositionItem> positions,
-        List<PortfolioSnapshotItem> recentPortfolioSnapshots
+        List<PortfolioSnapshotItem> recentPortfolioSnapshots,
+        List<OutboxEventItem> recentOutboxEvents
 ) {
 
     public record Summary(
@@ -27,17 +30,22 @@ public record DashboardOverviewResponse(
 
     public record RecentOrderItem(
             Long id,
+            Long accountId,
+            String accountCode,
             String clientOrderId,
             String status,
             String side,
             BigDecimal requestedQuantity,
             BigDecimal limitPrice,
+            BigDecimal reservedCashAmount,
             BigDecimal filledQuantity,
             BigDecimal remainingQuantity,
             String orderType,
+            String timeInForce,
             String instrumentSymbol,
             String strategyName,
             LocalDateTime createdAt,
+            LocalDateTime expiresAt,
             LocalDateTime updatedAt
     ) {
     }
@@ -74,6 +82,8 @@ public record DashboardOverviewResponse(
 
     public record PortfolioSummary(
             Long strategyRunId,
+            Long accountId,
+            String accountCode,
             String strategyName,
             LocalDateTime snapshotAt,
             BigDecimal totalMarketValue,
@@ -87,6 +97,8 @@ public record DashboardOverviewResponse(
     public record PortfolioSnapshotItem(
             Long id,
             Long strategyRunId,
+            Long accountId,
+            String accountCode,
             String strategyName,
             LocalDateTime snapshotAt,
             BigDecimal totalMarketValue,
@@ -94,6 +106,37 @@ public record DashboardOverviewResponse(
             BigDecimal realizedPnl,
             BigDecimal totalPnl,
             BigDecimal returnRate
+    ) {
+    }
+
+    public record AccountSummaryItem(
+            Long accountId,
+            String accountCode,
+            String ownerName,
+            String baseCurrency,
+            BigDecimal availableCash,
+            BigDecimal reservedCash,
+            LocalDateTime updatedAt
+    ) {
+    }
+
+    public record ResearchSummary(
+            String runId,
+            String strategyName,
+            String instrumentSymbol,
+            String generatedAt,
+            Map<String, Object> metrics
+    ) {
+    }
+
+    public record OutboxEventItem(
+            Long id,
+            String aggregateType,
+            Long aggregateId,
+            String eventType,
+            String processingStatus,
+            LocalDateTime createdAt,
+            LocalDateTime processedAt
     ) {
     }
 }

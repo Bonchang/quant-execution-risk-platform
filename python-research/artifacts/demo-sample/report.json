@@ -1,0 +1,27 @@
+{
+  "runId": "demo-sample",
+  "strategyName": "volatility-targeted moving average crossover",
+  "instrumentSymbol": "DEMO_AAPL",
+  "generatedAt": "2026-04-04T09:00:00",
+  "metrics": {
+    "cagr": 0.124,
+    "sharpe": 1.31,
+    "max_drawdown": -0.082,
+    "turnover": 2.43,
+    "win_rate": 0.58
+  },
+  "config": {
+    "fast_window": 5,
+    "slow_window": 20,
+    "volatility_window": 10,
+    "target_volatility": 0.18,
+    "transaction_cost_bps": 5.0,
+    "slippage_bps": 2.0
+  },
+  "artifactFiles": {
+    "equityCurveCsv": "python-research/artifacts/demo-sample/equity_curve.csv",
+    "tradesCsv": "python-research/artifacts/demo-sample/trades.csv",
+    "signalsCsv": "python-research/artifacts/demo-sample/signals.csv",
+    "equityCurveHtml": "python-research/artifacts/demo-sample/equity_curve.html"
+  }
+}

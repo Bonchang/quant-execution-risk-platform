@@ -1,15 +1,15 @@
 package com.bonchang.qerp.execution;
 
+import com.bonchang.qerp.account.AccountService;
 import com.bonchang.qerp.fill.Fill;
 import com.bonchang.qerp.fill.FillRepository;
-import com.bonchang.qerp.market.MarketPrice;
-import com.bonchang.qerp.market.MarketPriceRepository;
 import com.bonchang.qerp.order.Order;
-import com.bonchang.qerp.order.OrderType;
+import com.bonchang.qerp.order.OrderPricingService;
 import com.bonchang.qerp.order.OrderRepository;
 import com.bonchang.qerp.order.OrderSide;
 import com.bonchang.qerp.order.OrderStatus;
-import com.bonchang.qerp.portfolio.PortfolioSnapshotService;
+import com.bonchang.qerp.order.OrderType;
+import com.bonchang.qerp.outbox.OutboxEventService;
 import com.bonchang.qerp.position.Position;
 import com.bonchang.qerp.position.PositionRepository;
 import java.math.BigDecimal;
@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -28,14 +27,12 @@ public class OrderExecutionService {
 
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP);
 
-    private final MarketPriceRepository marketPriceRepository;
     private final FillRepository fillRepository;
     private final PositionRepository positionRepository;
     private final OrderRepository orderRepository;
-    private final PortfolioSnapshotService portfolioSnapshotService;
-
-    @Value("${execution.default-fill-price:1.000000}")
-    private BigDecimal defaultFillPrice;
+    private final OrderPricingService orderPricingService;
+    private final AccountService accountService;
+    private final OutboxEventService outboxEventService;
 
     public Order executeApprovedOrder(Order order) {
         if (order.getStatus() != OrderStatus.APPROVED) {
@@ -49,32 +46,36 @@ public class OrderExecutionService {
     }
 
     private Order executeMarketOrder(Order order) {
-        BigDecimal fillPrice = resolveMarketPrice(order).orElse(defaultFillPrice);
+        BigDecimal fillPrice = orderPricingService.resolveExecutionPriceOrDefault(order);
         List<BigDecimal> plan = marketExecutionPlan(order);
         if (plan.isEmpty()) {
             order.setUpdatedAt(LocalDateTime.now());
-            return orderRepository.save(order);
+            Order saved = orderRepository.save(order);
+            outboxEventService.publishOrderEvent(saved, "ORDER_APPROVED");
+            return saved;
         }
 
         for (BigDecimal fillQuantity : plan) {
             applyFill(order, fillPrice, fillQuantity);
         }
         updateOrderStatusAfterExecution(order);
+        finalizeOrderReservation(order);
         order.setUpdatedAt(LocalDateTime.now());
         Order savedOrder = orderRepository.save(order);
-        portfolioSnapshotService.createSnapshotForStrategyRun(savedOrder.getStrategyRun().getId());
+        outboxEventService.publishOrderEvent(savedOrder, savedOrder.getStatus() == OrderStatus.FILLED
+                ? "ORDER_FILLED"
+                : "ORDER_PARTIALLY_FILLED");
         return savedOrder;
     }
 
     private Order executeLimitOrder(Order order) {
-        Optional<BigDecimal> currentPrice = resolveMarketPrice(order);
-        if (currentPrice.isEmpty()) {
+        Optional<BigDecimal> currentPrice = orderPricingService.resolveLatestMarketPrice(order);
+        if (currentPrice.isEmpty() || !isExecutableLimitOrder(order, currentPrice.get())) {
+            order.setStatus(OrderStatus.WORKING);
             order.setUpdatedAt(LocalDateTime.now());
-            return orderRepository.save(order);
-        }
-        if (!isExecutableLimitOrder(order, currentPrice.get())) {
-            order.setUpdatedAt(LocalDateTime.now());
-            return orderRepository.save(order);
+            Order saved = orderRepository.save(order);
+            outboxEventService.publishOrderEvent(saved, "ORDER_WORKING");
+            return saved;
         }
 
         BigDecimal remaining = sanitizeScale(order.getRemainingQuantity());
@@ -82,9 +83,12 @@ public class OrderExecutionService {
             applyFill(order, currentPrice.get(), remaining);
         }
         updateOrderStatusAfterExecution(order);
+        finalizeOrderReservation(order);
         order.setUpdatedAt(LocalDateTime.now());
         Order savedOrder = orderRepository.save(order);
-        portfolioSnapshotService.createSnapshotForStrategyRun(savedOrder.getStrategyRun().getId());
+        outboxEventService.publishOrderEvent(savedOrder, savedOrder.getStatus() == OrderStatus.FILLED
+                ? "ORDER_FILLED"
+                : "ORDER_PARTIALLY_FILLED");
         return savedOrder;
     }
 
@@ -114,11 +118,6 @@ public class OrderExecutionService {
         return currentPrice.compareTo(limitPrice) >= 0;
     }
 
-    private Optional<BigDecimal> resolveMarketPrice(Order order) {
-        return marketPriceRepository.findFirstByInstrumentIdOrderByPriceDateDescIdDesc(order.getInstrument().getId())
-                .map(MarketPrice::getClosePrice);
-    }
-
     private void applyFill(Order order, BigDecimal fillPrice, BigDecimal fillQuantity) {
         if (fillQuantity.compareTo(ZERO) <= 0) {
             return;
@@ -141,6 +140,13 @@ public class OrderExecutionService {
         order.setRemainingQuantity(remaining);
         order.setLastExecutedAt(fill.getFilledAt());
 
+        BigDecimal fillNotional = sanitizeScale(fillPrice.multiply(fillQuantity));
+        if (order.getSide() == OrderSide.BUY) {
+            accountService.settleBuyFill(order.getAccount(), order, fillNotional, "BUY fill settlement for order " + order.getId());
+        } else {
+            accountService.settleSellProceeds(order.getAccount(), order, fillNotional, "SELL fill proceeds for order " + order.getId());
+        }
+
         upsertPosition(order, fillPrice, fillQuantity);
     }
 
@@ -150,6 +156,7 @@ public class OrderExecutionService {
                 order.getInstrument().getId()
         ).orElseGet(() -> {
             Position newPosition = new Position();
+            newPosition.setAccount(order.getAccount());
             newPosition.setStrategyRun(order.getStrategyRun());
             newPosition.setInstrument(order.getInstrument());
             newPosition.setNetQuantity(ZERO);
@@ -158,22 +165,23 @@ public class OrderExecutionService {
             return newPosition;
         });
 
-        BigDecimal existingQuantity = position.getNetQuantity();
+        BigDecimal existingQuantity = sanitizeScale(position.getNetQuantity());
 
         if (order.getSide() == OrderSide.BUY) {
-            BigDecimal newQuantity = existingQuantity.add(fillQuantity);
+            BigDecimal newQuantity = existingQuantity.add(fillQuantity).setScale(6, RoundingMode.HALF_UP);
             BigDecimal weightedCost = existingQuantity.multiply(position.getAveragePrice())
-                    .add(fillQuantity.multiply(fillPrice));
+                    .add(fillQuantity.multiply(fillPrice))
+                    .setScale(6, RoundingMode.HALF_UP);
             BigDecimal newAveragePrice = ZERO;
-            if (newQuantity.compareTo(BigDecimal.ZERO) > 0) {
+            if (newQuantity.compareTo(ZERO) > 0) {
                 newAveragePrice = weightedCost.divide(newQuantity, 6, RoundingMode.HALF_UP);
             }
-            position.setNetQuantity(newQuantity.setScale(6, RoundingMode.HALF_UP));
+            position.setNetQuantity(newQuantity);
             position.setAveragePrice(newAveragePrice);
         } else {
-            BigDecimal newQuantity = existingQuantity.subtract(fillQuantity);
-            position.setNetQuantity(newQuantity.setScale(6, RoundingMode.HALF_UP));
-            if (newQuantity.compareTo(BigDecimal.ZERO) <= 0) {
+            BigDecimal newQuantity = existingQuantity.subtract(fillQuantity).setScale(6, RoundingMode.HALF_UP);
+            position.setNetQuantity(newQuantity);
+            if (newQuantity.compareTo(ZERO) <= 0) {
                 position.setAveragePrice(ZERO);
             }
         }
@@ -194,6 +202,18 @@ public class OrderExecutionService {
             return;
         }
         order.setStatus(OrderStatus.PARTIALLY_FILLED);
+    }
+
+    private void finalizeOrderReservation(Order order) {
+        if (order.getSide() == OrderSide.BUY && order.getReservedCashAmount().compareTo(ZERO) > 0
+                && (order.getStatus() == OrderStatus.FILLED || order.getStatus() == OrderStatus.CANCELED || order.getStatus() == OrderStatus.EXPIRED)) {
+            accountService.releaseReservedCash(
+                    order.getAccount(),
+                    order,
+                    order.getReservedCashAmount(),
+                    "Release remaining reservation for order " + order.getId()
+            );
+        }
     }
 
     private BigDecimal sanitizeScale(BigDecimal value) {

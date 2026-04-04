@@ -1,12 +1,13 @@
 const state = {
   timerId: null,
-  options: { strategyRuns: [], instruments: [] },
+  token: localStorage.getItem('qerp.jwt') || '',
 };
 
 const summaryCards = document.getElementById('summary-cards');
 const statusCards = document.getElementById('status-cards');
 const marketDataStatus = document.getElementById('marketdata-status');
 const marketDataResult = document.getElementById('marketdata-result');
+const accountsTable = document.getElementById('accounts-table');
 const ordersTable = document.getElementById('orders-table');
 const riskTable = document.getElementById('risk-table');
 const fillsTable = document.getElementById('fills-table');
@@ -16,9 +17,14 @@ const portfolioTable = document.getElementById('portfolio-table');
 const portfolioLatest = document.getElementById('portfolio-latest');
 const portfolioTrend = document.getElementById('portfolio-trend');
 const portfolioTrendCaption = document.getElementById('portfolio-trend-caption');
+const outboxTable = document.getElementById('outbox-table');
 const eventFeed = document.getElementById('event-feed');
 const orderResult = document.getElementById('order-result');
+const tokenResult = document.getElementById('token-result');
+const researchSummary = document.getElementById('research-summary');
 const orderForm = document.getElementById('order-form');
+const loginForm = document.getElementById('login-form');
+const accountSelect = document.getElementById('account-select');
 const strategyRunSelect = document.getElementById('strategy-run-select');
 const instrumentSelect = document.getElementById('instrument-select');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -28,7 +34,7 @@ const snapshotBtn = document.getElementById('snapshot-btn');
 const autoRefreshToggle = document.getElementById('auto-refresh');
 
 function fmt(value) {
-  return value === null || value === undefined ? '-' : String(value);
+  return value === null || value === undefined || value === '' ? '-' : String(value);
 }
 
 function fmtTime(value) {
@@ -36,7 +42,7 @@ function fmtTime(value) {
 }
 
 function fmtPercent(value) {
-  return `${Number(value || 0).toFixed(1)}%`;
+  return `${Number(value || 0).toFixed(2)}%`;
 }
 
 function fmtMoney(value) {
@@ -64,49 +70,100 @@ function renderTable(tableEl, headers, rows) {
   tableEl.innerHTML = `${head}<tbody>${body}</tbody>`;
 }
 
-function renderSummary(summary) {
-  const portfolio = summary.portfolioSummary || {};
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (state.token) {
+    headers.Authorization = `Bearer ${state.token}`;
+  }
+  return headers;
+}
+
+async function apiFetch(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: authHeaders(options.headers || {}),
+  });
+  const text = await response.text();
+  let body = {};
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = { raw: text };
+  }
+  if (!response.ok) {
+    throw new Error(`${path} -> ${response.status}: ${body.message || body.error || text}`);
+  }
+  return body;
+}
+
+function renderOverview(data) {
+  const summary = data.summary || {};
+  const portfolio = data.portfolioSummary || {};
+  const research = data.researchSummary || {};
+
   const cards = [
-    ['총 평가금액', fmtMoney(portfolio.totalMarketValue)],
-    ['미실현 손익', fmtSigned(portfolio.unrealizedPnl), signClass(portfolio.unrealizedPnl)],
-    ['총 손익', fmtSigned(portfolio.totalPnl), signClass(portfolio.totalPnl)],
-    ['수익률', fmtPercent(portfolio.returnRate), signClass(portfolio.returnRate)],
     ['총 주문', fmt(summary.totalOrders)],
     ['체결 주문', fmt(summary.filledOrders)],
     ['거절 주문', fmt(summary.rejectedOrders)],
-  ];
-  summaryCards.innerHTML = cards
-    .map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`)
-    .join('');
-}
-
-function renderStatusCounts(counts) {
-  const statuses = Object.keys(counts || {}).sort();
-  statusCards.innerHTML = statuses.length
-    ? statuses.map((status) => `<div class="status"><div class="name">${status}</div><div class="count">${counts[status]}</div></div>`).join('')
-    : '<div class="status"><div class="name">ORDERS</div><div class="count">0</div></div>';
-}
-
-function renderPortfolioSummary(summary) {
-  const cards = [
-    ['전략 실행', summary.strategyName || '-'],
-    ['스냅샷 시각', fmtTime(summary.snapshotAt)],
-    ['실현 손익(MVP)', fmtSigned(summary.realizedPnl), signClass(summary.realizedPnl)],
     ['체결률', fmtPercent(summary.fillRatePercent)],
     ['거절률', fmtPercent(summary.rejectionRatePercent)],
+    ['총 평가금액', fmtMoney(portfolio.totalMarketValue)],
+    ['총 손익', fmtSigned(portfolio.totalPnl), signClass(portfolio.totalPnl)],
   ];
-  portfolioKpis.innerHTML = cards
-    .map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`)
-    .join('');
+  summaryCards.innerHTML = cards.map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`).join('');
+
+  const portfolioCards = [
+    ['계좌', portfolio.accountCode || '-'],
+    ['전략', portfolio.strategyName || '-'],
+    ['스냅샷 시각', fmtTime(portfolio.snapshotAt)],
+    ['미실현 손익', fmtSigned(portfolio.unrealizedPnl), signClass(portfolio.unrealizedPnl)],
+    ['실현 손익', fmtSigned(portfolio.realizedPnl), signClass(portfolio.realizedPnl)],
+  ];
+  portfolioKpis.innerHTML = portfolioCards.map(([label, value, cls]) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div></div>`).join('');
 
   portfolioLatest.innerHTML = `
-    <div class="latest-item"><span>전략</span><strong>${fmt(summary.strategyName)}</strong></div>
-    <div class="latest-item"><span>스냅샷 시각</span><strong>${fmtTime(summary.snapshotAt)}</strong></div>
-    <div class="latest-item"><span>총 평가금액</span><strong>${fmtMoney(summary.totalMarketValue)}</strong></div>
-    <div class="latest-item"><span>미실현 손익</span><strong class="${signClass(summary.unrealizedPnl)}">${fmtSigned(summary.unrealizedPnl)}</strong></div>
-    <div class="latest-item"><span>총 손익</span><strong class="${signClass(summary.totalPnl)}">${fmtSigned(summary.totalPnl)}</strong></div>
-    <div class="latest-item"><span>수익률</span><strong class="${signClass(summary.returnRate)}">${fmtPercent(summary.returnRate)}</strong></div>
+    <div class="latest-item"><span>계좌</span><strong>${fmt(portfolio.accountCode)}</strong></div>
+    <div class="latest-item"><span>전략</span><strong>${fmt(portfolio.strategyName)}</strong></div>
+    <div class="latest-item"><span>총 평가금액</span><strong>${fmtMoney(portfolio.totalMarketValue)}</strong></div>
+    <div class="latest-item"><span>총 손익</span><strong class="${signClass(portfolio.totalPnl)}">${fmtSigned(portfolio.totalPnl)}</strong></div>
+    <div class="latest-item"><span>수익률</span><strong class="${signClass(portfolio.returnRate)}">${fmtPercent(portfolio.returnRate)}</strong></div>
   `;
+
+  researchSummary.textContent = JSON.stringify(research, null, 2);
+
+  const statuses = Object.keys(data.statusCounts || {}).sort();
+  statusCards.innerHTML = statuses.length
+    ? statuses.map((status) => `<div class="status"><div class="name">${status}</div><div class="count">${data.statusCounts[status]}</div></div>`).join('')
+    : '<div class="status"><div class="name">ORDERS</div><div class="count">0</div></div>';
+
+  eventFeed.innerHTML = [
+    data.recentOrders?.[0] ? `최근 주문 #${data.recentOrders[0].id} -> ${data.recentOrders[0].status}` : null,
+    data.recentOutboxEvents?.[0] ? `최근 outbox ${data.recentOutboxEvents[0].eventType}` : null,
+    research.runId ? `최신 연구 ${research.runId}` : null,
+  ].filter(Boolean).map((line) => `<li>${line}</li>`).join('') || '<li>아직 이벤트 없음</li>';
+
+  renderTable(accountsTable, ['Account', 'Owner', 'Currency', 'AvailableCash', 'ReservedCash', 'UpdatedAt'],
+    (data.accountSummaries || []).map((a) => [fmt(a.accountCode), fmt(a.ownerName), fmt(a.baseCurrency), fmtMoney(a.availableCash), fmtMoney(a.reservedCash), fmtTime(a.updatedAt)]));
+
+  renderTable(ordersTable, ['ID', 'Account', 'ClientOrderId', 'Status', 'Side', 'ReqQty', 'LimitPx', 'ReservedCash', 'FilledQty', 'RemainQty', 'Type', 'TIF', 'Instrument', 'Strategy', 'ExpiresAt', 'UpdatedAt'],
+    (data.recentOrders || []).map((o) => [fmt(o.id), fmt(o.accountCode), fmt(o.clientOrderId), fmt(o.status), fmt(o.side), fmt(o.requestedQuantity), fmt(o.limitPrice), fmtMoney(o.reservedCashAmount), fmt(o.filledQuantity), fmt(o.remainingQuantity), fmt(o.orderType), fmt(o.timeInForce), fmt(o.instrumentSymbol), fmt(o.strategyName), fmtTime(o.expiresAt), fmtTime(o.updatedAt)]));
+
+  renderTable(riskTable, ['ID', 'OrderID', 'Rule', 'Result', 'Message', 'CheckedAt'],
+    (data.recentRiskChecks || []).map((r) => [fmt(r.id), fmt(r.orderId), fmt(r.ruleName), `<span class="badge ${r.passed ? 'pass' : 'fail'}">${r.passed ? 'PASS' : 'FAIL'}</span>`, fmt(r.message), fmtTime(r.checkedAt)]));
+
+  renderTable(fillsTable, ['ID', 'OrderID', 'Instrument', 'Qty', 'Price', 'FilledAt'],
+    (data.recentFills || []).map((f) => [fmt(f.id), fmt(f.orderId), fmt(f.instrumentSymbol), fmt(f.fillQuantity), fmt(f.fillPrice), fmtTime(f.filledAt)]));
+
+  renderTable(positionsTable, ['ID', 'Strategy', 'Instrument', 'NetQty', 'AvgPrice', 'UpdatedAt'],
+    (data.positions || []).map((p) => [fmt(p.id), fmt(p.strategyName), fmt(p.instrumentSymbol), fmt(p.netQuantity), fmt(p.averagePrice), fmtTime(p.updatedAt)]));
+
+  renderTable(portfolioTable, ['ID', 'Account', 'StrategyRun', 'Strategy', 'SnapshotAt', 'MarketValue', 'UnrealizedPnL', 'RealizedPnL', 'TotalPnL', 'ReturnRate'],
+    (data.recentPortfolioSnapshots || []).map((p) => [fmt(p.id), fmt(p.accountCode), fmt(p.strategyRunId), fmt(p.strategyName), fmtTime(p.snapshotAt), fmtMoney(p.totalMarketValue), fmtSigned(p.unrealizedPnl), fmtSigned(p.realizedPnl), fmtSigned(p.totalPnl), fmtPercent(p.returnRate)]));
+
+  renderTable(outboxTable, ['ID', 'Aggregate', 'AggregateId', 'Event', 'Status', 'CreatedAt', 'ProcessedAt'],
+    (data.recentOutboxEvents || []).map((e) => [fmt(e.id), fmt(e.aggregateType), fmt(e.aggregateId), fmt(e.eventType), fmt(e.processingStatus), fmtTime(e.createdAt), fmtTime(e.processedAt)]));
+
+  renderPortfolioTrend(data.recentPortfolioSnapshots || []);
 }
 
 function renderPortfolioTrend(snapshots) {
@@ -125,282 +182,130 @@ function renderPortfolioTrend(snapshots) {
   const padding = { top: 16, right: 16, bottom: 26, left: 54 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-  const pointCount = values.length;
-
-  const toX = (idx) => padding.left + (idx / Math.max(pointCount - 1, 1)) * innerWidth;
+  const toX = (idx) => padding.left + (idx / Math.max(values.length - 1, 1)) * innerWidth;
   const toY = (value) => padding.top + (1 - ((value - min) / range)) * innerHeight;
-
   const points = values.map((value, idx) => `${toX(idx).toFixed(2)},${toY(value).toFixed(2)}`).join(' ');
-
-  let baseline = '';
-  if (min <= 0 && max >= 0) {
-    const zeroY = toY(0);
-    baseline = `
-      <line x1="${padding.left}" y1="${zeroY}" x2="${width - padding.right}" y2="${zeroY}" class="trend-baseline" />
-      <text x="${padding.left - 6}" y="${zeroY + 4}" text-anchor="end" class="trend-label">0</text>
-    `;
-  }
-
-  const minY = toY(min);
-  const maxY = toY(max);
-  const axisAndLabels = `
-    <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" class="trend-axis" />
-    <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" class="trend-axis" />
-    <line x1="${padding.left}" y1="${maxY}" x2="${width - padding.right}" y2="${maxY}" class="trend-grid" />
-    <line x1="${padding.left}" y1="${minY}" x2="${width - padding.right}" y2="${minY}" class="trend-grid" />
-    <text x="${padding.left - 6}" y="${maxY + 4}" text-anchor="end" class="trend-label">${fmtSigned(max)}</text>
-    <text x="${padding.left - 6}" y="${minY + 4}" text-anchor="end" class="trend-label">${fmtSigned(min)}</text>
-  `;
-
-  const tickStep = Math.max(1, Math.floor(pointCount / 6));
-  const ticks = values.map((_, idx) => idx)
-    .filter((idx) => idx % tickStep === 0 || idx === pointCount - 1)
-    .map((idx) => {
-      const x = toX(idx);
-      return `
-        <line x1="${x}" y1="${height - padding.bottom}" x2="${x}" y2="${height - padding.bottom + 4}" class="trend-axis" />
-        <text x="${x}" y="${height - 8}" text-anchor="middle" class="trend-label">#${idx + 1}</text>
-      `;
-    })
-    .join('');
-
-  const latestValue = values[pointCount - 1];
-  const latestX = toX(pointCount - 1);
-  const latestY = toY(latestValue);
-  const lineColor = latestValue >= 0 ? '#2f855a' : '#c53030';
-  const trendDirection = latestValue >= values[0] ? '개선' : '악화';
-
-  portfolioTrend.innerHTML = `
-    ${axisAndLabels}
-    ${baseline}
-    ${ticks}
-    <polyline fill="none" stroke="${lineColor}" stroke-width="3" points="${points}" />
-    <circle cx="${latestX}" cy="${latestY}" r="4" class="trend-latest-point" />
-    <text x="${latestX - 6}" y="${latestY - 8}" text-anchor="end" class="trend-latest-label">최신 ${fmtSigned(latestValue)}</text>
-  `;
-  portfolioTrendCaption.textContent = `최근 ${ordered.length}개 스냅샷 기준 총손익 추이 · 0선 ${min <= 0 && max >= 0 ? '포함' : '비포함'} · 최근 방향: ${trendDirection}`;
-}
-
-function renderEventFeed(data) {
-  const items = [];
-  if (data.recentOrders?.[0]) {
-    const o = data.recentOrders[0];
-    items.push(`최근 주문 #${o.id} (${o.clientOrderId}) 상태: ${o.status}`);
-  }
-  if (data.recentRiskChecks?.[0]) {
-    const r = data.recentRiskChecks[0];
-    items.push(`최근 리스크: ${r.ruleName} => ${r.passed ? 'PASS' : 'FAIL'}`);
-  }
-  if (data.recentFills?.[0]) {
-    const f = data.recentFills[0];
-    items.push(`최근 체결: ${f.instrumentSymbol} ${f.fillQuantity}@${f.fillPrice}`);
-  }
-  if (data.positions?.[0]) {
-    const p = data.positions[0];
-    items.push(`최근 포지션: ${p.strategyName}/${p.instrumentSymbol} 수량 ${p.netQuantity}`);
-  }
-
-  eventFeed.innerHTML = (items.length ? items : ['아직 이벤트 없음'])
-    .map((item) => `<li>${item}</li>`)
-    .join('');
+  portfolioTrend.innerHTML = `<polyline fill="none" stroke="${values[values.length - 1] >= 0 ? '#2f855a' : '#c53030'}" stroke-width="3" points="${points}" />`;
+  portfolioTrendCaption.textContent = `최근 ${ordered.length}개 스냅샷 기준 총손익 추이 · 최신 ${fmtSigned(values[values.length - 1])}`;
 }
 
 function renderMarketDataStatus(status) {
   const result = status.lastResult || {};
-  const cards = [
+  marketDataStatus.innerHTML = [
     ['활성화', status.enabled ? 'ON' : 'OFF'],
     ['API Key', status.apiKeyConfigured ? 'SET' : 'EMPTY'],
     ['마지막 실행', fmtTime(status.lastRunAt)],
     ['대상 종목수', fmt(result.totalInstruments)],
     ['성공', fmt(result.successCount)],
     ['실패', fmt(result.failureCount)],
-  ];
-
-  marketDataStatus.innerHTML = cards
-    .map(([name, value]) => `<div class="mstat"><div class="name">${name}</div><div class="count">${value}</div></div>`)
-    .join('');
-
-  const updated = Array.isArray(result.updatedSymbols) ? result.updatedSymbols : [];
-  const failures = Array.isArray(result.failures) ? result.failures : [];
-  if (updated.length || failures.length) {
-    marketDataResult.textContent = JSON.stringify({ updatedSymbols: updated, failures }, null, 2);
-  }
+  ].map(([name, value]) => `<div class="mstat"><div class="name">${name}</div><div class="count">${value}</div></div>`).join('');
+  marketDataResult.textContent = JSON.stringify(result, null, 2);
 }
 
-function renderOverview(data) {
-  const summary = data.summary || { totalOrders: 0, filledOrders: 0, rejectedOrders: 0, fillRatePercent: 0, rejectionRatePercent: 0 };
-  const portfolioSummary = data.portfolioSummary || {};
-  renderSummary({ ...summary, portfolioSummary });
-  renderPortfolioSummary({ ...portfolioSummary, fillRatePercent: summary.fillRatePercent, rejectionRatePercent: summary.rejectionRatePercent });
-  renderStatusCounts(data.statusCounts || {});
-  renderEventFeed(data);
-
-  renderTable(
-    ordersTable,
-    ['ID', 'ClientOrderId', 'Status', 'Side', 'ReqQty', 'LimitPx', 'FilledQty', 'RemainQty', 'Type', 'Instrument', 'Strategy', 'CreatedAt', 'UpdatedAt'],
-    (data.recentOrders || []).map((o) => [
-      fmt(o.id),
-      fmt(o.clientOrderId),
-      fmt(o.status),
-      fmt(o.side),
-      fmt(o.requestedQuantity),
-      fmt(o.limitPrice),
-      fmt(o.filledQuantity),
-      fmt(o.remainingQuantity),
-      fmt(o.orderType),
-      fmt(o.instrumentSymbol),
-      fmt(o.strategyName),
-      fmtTime(o.createdAt),
-      fmtTime(o.updatedAt),
-    ]),
-  );
-
-  renderTable(
-    riskTable,
-    ['ID', 'OrderID', 'Rule', 'Result', 'Message', 'CheckedAt'],
-    (data.recentRiskChecks || []).map((r) => [
-      fmt(r.id),
-      fmt(r.orderId),
-      fmt(r.ruleName),
-      `<span class="badge ${r.passed ? 'pass' : 'fail'}">${r.passed ? 'PASS' : 'FAIL'}</span>`,
-      fmt(r.message),
-      fmtTime(r.checkedAt),
-    ]),
-  );
-
-  renderTable(
-    fillsTable,
-    ['ID', 'OrderID', 'Instrument', 'Qty', 'Price', 'FilledAt'],
-    (data.recentFills || []).map((f) => [fmt(f.id), fmt(f.orderId), fmt(f.instrumentSymbol), fmt(f.fillQuantity), fmt(f.fillPrice), fmtTime(f.filledAt)]),
-  );
-
-  renderTable(
-    positionsTable,
-    ['ID', 'Strategy', 'Instrument', 'NetQty', 'AvgPrice', 'UpdatedAt'],
-    (data.positions || []).map((p) => [fmt(p.id), fmt(p.strategyName), fmt(p.instrumentSymbol), fmt(p.netQuantity), fmt(p.averagePrice), fmtTime(p.updatedAt)]),
-  );
-
-  renderTable(
-    portfolioTable,
-    ['ID', 'StrategyRun', 'Strategy', 'SnapshotAt', 'MarketValue', 'UnrealizedPnL', 'RealizedPnL', 'TotalPnL', 'ReturnRate'],
-    (data.recentPortfolioSnapshots || []).map((p) => [
-      fmt(p.id),
-      fmt(p.strategyRunId),
-      fmt(p.strategyName),
-      fmtTime(p.snapshotAt),
-      fmtMoney(p.totalMarketValue),
-      fmtSigned(p.unrealizedPnl),
-      fmtSigned(p.realizedPnl),
-      fmtSigned(p.totalPnl),
-      fmtPercent(p.returnRate),
-    ]),
-  );
-  renderPortfolioTrend(data.recentPortfolioSnapshots || []);
-}
-
-async function loadOverview() {
-  const response = await fetch('/dashboard/overview?limit=20');
-  if (!response.ok) {
-    throw new Error(`overview load failed: ${response.status}`);
-  }
-  const data = await response.json();
-  renderOverview(data);
-}
-
-async function loadMarketDataStatus() {
-  const response = await fetch('/market-data/status');
-  if (!response.ok) {
-    throw new Error(`market-data status failed: ${response.status}`);
-  }
-  const data = await response.json();
-  renderMarketDataStatus(data);
-}
-
-function fillOptions(response) {
-  state.options = response;
+function fillOptions(options) {
+  accountSelect.innerHTML = '';
+  (options.accounts || []).forEach((account) => {
+    const option = document.createElement('option');
+    option.value = String(account.id);
+    option.textContent = `${account.accountCode} (${account.ownerName})`;
+    accountSelect.appendChild(option);
+  });
 
   strategyRunSelect.innerHTML = '';
-  if (!response.strategyRuns?.length) {
-    strategyRunSelect.innerHTML = '<option value="">(strategy run 없음)</option>';
-  } else {
-    for (const s of response.strategyRuns) {
-      const option = document.createElement('option');
-      option.value = String(s.id);
-      option.textContent = `${s.id} - ${s.strategyName} (${fmtTime(s.runAt)})`;
-      strategyRunSelect.appendChild(option);
-    }
-  }
+  (options.strategyRuns || []).forEach((strategyRun) => {
+    const option = document.createElement('option');
+    option.value = String(strategyRun.id);
+    option.dataset.accountId = String(strategyRun.accountId);
+    option.textContent = `${strategyRun.id} - ${strategyRun.strategyName}`;
+    strategyRunSelect.appendChild(option);
+  });
 
   instrumentSelect.innerHTML = '';
-  if (!response.instruments?.length) {
-    instrumentSelect.innerHTML = '<option value="">(instrument 없음)</option>';
-  } else {
-    for (const i of response.instruments) {
-      const option = document.createElement('option');
-      option.value = String(i.id);
-      option.textContent = `${i.id} - ${i.symbol} (${fmt(i.latestClosePrice)})`;
-      instrumentSelect.appendChild(option);
-    }
+  (options.instruments || []).forEach((instrument) => {
+    const option = document.createElement('option');
+    option.value = String(instrument.id);
+    option.textContent = `${instrument.symbol} (${fmt(instrument.latestClosePrice)})`;
+    instrumentSelect.appendChild(option);
+  });
+
+  syncStrategyRunByAccount();
+}
+
+function syncStrategyRunByAccount() {
+  const accountId = accountSelect.value;
+  for (const option of strategyRunSelect.options) {
+    option.hidden = accountId && option.dataset.accountId !== accountId;
+  }
+  const visible = Array.from(strategyRunSelect.options).find((option) => !option.hidden);
+  if (visible) {
+    strategyRunSelect.value = visible.value;
   }
 }
 
 async function loadOptions() {
-  const response = await fetch('/dashboard/options');
-  if (!response.ok) {
-    throw new Error(`options load failed: ${response.status}`);
-  }
-  const data = await response.json();
-  fillOptions(data);
+  fillOptions(await apiFetch('/dashboard/options'));
 }
 
-async function createDemoData() {
-  const response = await fetch('/dashboard/seed-demo', { method: 'POST' });
-  const body = await response.json();
-  if (!response.ok) {
-    orderResult.textContent = JSON.stringify(body, null, 2);
-    throw new Error(`seed failed: ${response.status}`);
-  }
-  orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
+async function loadOverview() {
+  renderOverview(await apiFetch('/dashboard/overview?limit=20'));
+}
+
+async function loadMarketDataStatus() {
+  renderMarketDataStatus(await apiFetch('/market-data/status'));
+}
+
+async function login(evt) {
+  evt.preventDefault();
+  const formData = new FormData(loginForm);
+  const body = await apiFetch('/auth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: String(formData.get('username')),
+      password: String(formData.get('password')),
+    }),
+  });
+  state.token = body.accessToken;
+  localStorage.setItem('qerp.jwt', state.token);
+  tokenResult.textContent = JSON.stringify(body, null, 2);
   await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
-}
-
-async function ingestMarketData() {
-  const response = await fetch('/market-data/ingest', { method: 'POST' });
-  const body = await response.json();
-  marketDataResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
-  await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
-}
-
-async function refreshPortfolioSnapshots() {
-  const response = await fetch('/dashboard/portfolio-snapshots/refresh', { method: 'POST' });
-  const body = await response.json();
-  orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
-  await Promise.all([loadOverview(), loadMarketDataStatus()]);
+  setAutoRefresh(autoRefreshToggle.checked);
 }
 
 async function submitOrder(evt) {
   evt.preventDefault();
-
   const formData = new FormData(orderForm);
-  const payload = {
-    strategyRunId: Number(formData.get('strategyRunId')),
-    instrumentId: Number(formData.get('instrumentId')),
-    side: formData.get('side'),
-    quantity: String(formData.get('quantity')),
-    orderType: formData.get('orderType'),
-    limitPrice: formData.get('limitPrice') ? String(formData.get('limitPrice')) : null,
-    clientOrderId: String(formData.get('clientOrderId')),
-  };
-
-  const response = await fetch('/orders', {
+  const body = await apiFetch('/orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      accountId: Number(formData.get('accountId')),
+      strategyRunId: Number(formData.get('strategyRunId')),
+      instrumentId: Number(formData.get('instrumentId')),
+      side: String(formData.get('side')),
+      quantity: String(formData.get('quantity')),
+      orderType: String(formData.get('orderType')),
+      limitPrice: formData.get('limitPrice') ? String(formData.get('limitPrice')) : null,
+      timeInForce: String(formData.get('timeInForce')),
+      clientOrderId: String(formData.get('clientOrderId')),
+    }),
   });
+  orderResult.textContent = JSON.stringify(body, null, 2);
+  await Promise.all([loadOverview(), loadMarketDataStatus()]);
+}
 
-  const body = await response.json().catch(() => ({}));
-  orderResult.textContent = JSON.stringify({ status: response.status, body }, null, 2);
+async function createDemoData() {
+  orderResult.textContent = JSON.stringify(await apiFetch('/dashboard/seed-demo', { method: 'POST' }), null, 2);
+  await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
+}
 
+async function ingestMarketData() {
+  marketDataResult.textContent = JSON.stringify(await apiFetch('/market-data/ingest', { method: 'POST' }), null, 2);
+  await Promise.all([loadOverview(), loadMarketDataStatus()]);
+}
+
+async function refreshPortfolioSnapshots() {
+  orderResult.textContent = JSON.stringify(await apiFetch('/dashboard/portfolio-snapshots/refresh', { method: 'POST' }), null, 2);
   await Promise.all([loadOverview(), loadMarketDataStatus()]);
 }
 
@@ -409,7 +314,7 @@ function setAutoRefresh(enabled) {
     clearInterval(state.timerId);
     state.timerId = null;
   }
-  if (enabled) {
+  if (enabled && state.token) {
     state.timerId = setInterval(() => {
       Promise.all([loadOverview(), loadMarketDataStatus()]).catch((err) => {
         orderResult.textContent = `refresh error: ${err.message}`;
@@ -418,45 +323,20 @@ function setAutoRefresh(enabled) {
   }
 }
 
-refreshBtn.addEventListener('click', () => {
-  Promise.all([loadOverview(), loadOptions(), loadMarketDataStatus()]).catch((err) => {
-    orderResult.textContent = `refresh error: ${err.message}`;
-  });
-});
+loginForm.addEventListener('submit', (evt) => login(evt).catch((err) => { tokenResult.textContent = err.message; }));
+orderForm.addEventListener('submit', (evt) => submitOrder(evt).catch((err) => { orderResult.textContent = err.message; }));
+refreshBtn.addEventListener('click', () => Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]).catch((err) => { orderResult.textContent = err.message; }));
+seedBtn.addEventListener('click', () => createDemoData().catch((err) => { orderResult.textContent = err.message; }));
+ingestBtn.addEventListener('click', () => ingestMarketData().catch((err) => { marketDataResult.textContent = err.message; }));
+snapshotBtn.addEventListener('click', () => refreshPortfolioSnapshots().catch((err) => { orderResult.textContent = err.message; }));
+autoRefreshToggle.addEventListener('change', (evt) => setAutoRefresh(evt.target.checked));
+accountSelect.addEventListener('change', syncStrategyRunByAccount);
 
-seedBtn.addEventListener('click', () => {
-  createDemoData().catch((err) => {
-    orderResult.textContent = `seed error: ${err.message}`;
-  });
-});
-
-ingestBtn.addEventListener('click', () => {
-  ingestMarketData().catch((err) => {
-    marketDataResult.textContent = `ingest error: ${err.message}`;
-  });
-});
-
-snapshotBtn.addEventListener('click', () => {
-  refreshPortfolioSnapshots().catch((err) => {
-    orderResult.textContent = `snapshot error: ${err.message}`;
-  });
-});
-
-autoRefreshToggle.addEventListener('change', (evt) => {
-  setAutoRefresh(evt.target.checked);
-});
-
-orderForm.addEventListener('submit', (evt) => {
-  submitOrder(evt).catch((err) => {
-    orderResult.textContent = `order submit error: ${err.message}`;
-  });
-});
-
-(async () => {
-  try {
-    await Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()]);
-    setAutoRefresh(true);
-  } catch (err) {
-    orderResult.textContent = `initial load error: ${err.message}`;
-  }
-})();
+tokenResult.textContent = state.token ? '저장된 JWT 사용 중' : '먼저 JWT를 발급하세요.';
+if (state.token) {
+  Promise.all([loadOptions(), loadOverview(), loadMarketDataStatus()])
+    .then(() => setAutoRefresh(true))
+    .catch((err) => {
+      orderResult.textContent = err.message;
+    });
+}

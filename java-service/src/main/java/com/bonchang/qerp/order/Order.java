@@ -1,5 +1,6 @@
 package com.bonchang.qerp.order;
 
+import com.bonchang.qerp.account.Account;
 import com.bonchang.qerp.instrument.Instrument;
 import com.bonchang.qerp.strategyrun.StrategyRun;
 import jakarta.persistence.Column;
@@ -41,6 +42,10 @@ public class Order {
     private StrategyRun strategyRun;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "account_id", nullable = false)
+    private Account account;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "instrument_id", nullable = false)
     private Instrument instrument;
 
@@ -64,9 +69,16 @@ public class Order {
     @Column(name = "limit_price", precision = 19, scale = 6)
     private BigDecimal limitPrice;
 
+    @Column(name = "reserved_cash_amount", nullable = false, precision = 19, scale = 6)
+    private BigDecimal reservedCashAmount;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
     private OrderStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "time_in_force", nullable = false, length = 16)
+    private TimeInForce timeInForce;
 
     @Column(name = "client_order_id", nullable = false, length = 64)
     private String clientOrderId;
@@ -76,6 +88,9 @@ public class Order {
 
     @Column(name = "last_executed_at")
     private LocalDateTime lastExecutedAt;
+
+    @Column(name = "expires_at")
+    private LocalDateTime expiresAt;
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;

@@ -1,1 +1,7 @@
 .idea/
+.DS_Store
+python-research/.venv/
+python-research/**/__pycache__/
+python-research/**/*.pyc
+python-research/src/*.egg-info/
+python-research/src/**/*.egg-info/

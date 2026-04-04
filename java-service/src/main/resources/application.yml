@@ -24,5 +24,24 @@ market-data:
   api-key: ${FINNHUB_API_KEY:}
   poll-ms: 60000
   max-instruments-per-run: 100
+outbox:
+  poll-ms: 5000
+orders:
+  expiry-poll-ms: 60000
+research:
+  artifacts-path: ${RESEARCH_ARTIFACTS_PATH:../python-research/artifacts}
+security:
+  jwt:
+    secret: ${JWT_SECRET:qerp-demo-secret-key-qerp-demo-secret-key}
+    ttl-seconds: 3600
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
 server:
   port: ${SERVER_PORT:8080}

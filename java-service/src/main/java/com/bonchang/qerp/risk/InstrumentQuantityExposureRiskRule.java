@@ -27,7 +27,8 @@ public class InstrumentQuantityExposureRiskRule implements RiskRule {
 
     @Override
     public RiskRuleResult evaluate(Order order) {
-        BigDecimal existingSignedExposure = orderRepository.sumSignedQuantityByInstrumentIdAndStatuses(
+        BigDecimal existingSignedExposure = orderRepository.sumSignedQuantityByAccountIdAndInstrumentIdAndStatuses(
+                order.getAccount().getId(),
                 order.getInstrument().getId(),
                 List.of(OrderStatus.APPROVED, OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED)
         );

@@ -5,12 +5,22 @@ import java.time.LocalDate;
 import java.util.List;
 
 public record DashboardOptionsResponse(
+        List<AccountOption> accounts,
         List<StrategyRunOption> strategyRuns,
         List<InstrumentOption> instruments
 ) {
 
+    public record AccountOption(
+            Long id,
+            String accountCode,
+            String ownerName,
+            String baseCurrency
+    ) {
+    }
+
     public record StrategyRunOption(
             Long id,
+            Long accountId,
             String strategyName,
             String runAt
     ) {

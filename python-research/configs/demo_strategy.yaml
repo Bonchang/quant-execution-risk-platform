@@ -1,0 +1,17 @@
+run_id: demo-vol-ma
+strategy_name: volatility-targeted moving average crossover
+instrument_symbol: DEMO_AAPL
+initial_capital: 100000.0
+fast_window: 5
+slow_window: 20
+volatility_window: 10
+target_volatility: 0.18
+max_gross_exposure: 1.0
+transaction_cost_bps: 5.0
+slippage_bps: 2.0
+db:
+  host: localhost
+  port: 5432
+  name: qerp
+  user: postgres
+  password: postgres
